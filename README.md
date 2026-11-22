@@ -118,6 +118,10 @@ On macOS you can also double-click `启动唱片机.command`.
 
 See [`docs/launchd.md`](docs/launchd.md) for a `launchd` plist that starts WarmPlayer at login and restarts it if it dies.
 
+### Run on Synology / any Docker host
+
+See [`docs/deploy-synology.md`](docs/deploy-synology.md): container pins python + ffmpeg + numpy, survives DSM upgrades, restarts on boot; music volumes mount read-only, DSM reverse proxy adds HTTPS.
+
 ## Architecture
 
 ```

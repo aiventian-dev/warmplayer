@@ -118,6 +118,10 @@ macOS 上也可以直接双击 `启动唱片机.command`。
 
 见 [`docs/launchd.md`](docs/launchd.md)：登录自启、挂掉自动拉起的 launchd 配置模板。
 
+### 部署到群晖 / 任意 Docker 主机
+
+见 [`docs/deploy-synology.md`](docs/deploy-synology.md)：容器把 python + ffmpeg + numpy 锁在一起，DSM 升级不影响、开机自启；音乐卷只读挂载，DSM 反代可套 HTTPS。音乐在 NAS 上时，这是比 Mac 更合适的家。
+
 ## 架构
 
 ```
