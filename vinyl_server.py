@@ -118,6 +118,7 @@ FFMPEG = shutil.which("ffmpeg") or next(
     (c for c in ("/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/bin/ffmpeg")
      if os.path.isfile(c) and os.access(c, os.X_OK)), None)
 METER_DEBUG = bool(os.environ.get("METER_DEBUG"))
+START_TS = time.time()
 
 LOCK = threading.RLock()
 SCAN = {"active": False, "folderName": "", "done": 0, "total": 0}
@@ -2380,6 +2381,16 @@ class Handler(BaseHTTPRequestHandler):
                 log("访问端 UA：%s" % ua[:220])
             self._send_file(PAGE_FILE, "text/html; charset=utf-8")
             return
+        if p == "/api/health":
+            try:
+                import numpy as _np
+                nv = _np.__version__
+            except Exception:
+                nv = None
+            self._json({"ok": True, "py": sys.version.split()[0], "ffmpeg": FFMPEG,
+                        "numpy": nv, "albums": len(ALBUMS),
+                        "uptime": int(time.time() - START_TS)})
+            return
         if p == "/api/state":
             self._json(state_payload(self._client_local()))
             return
@@ -2718,7 +2729,24 @@ def _raise_fd_limit():
         except Exception: pass
 
 
+def _single_instance_lock():
+    # flock 由内核在进程死亡时自动释放，无陈旧锁问题；持住文件对象防止 GC 闭锁
+    import fcntl
+    d = os.path.expanduser("~/.warmplayer")
+    os.makedirs(d, exist_ok=True)
+    fh = open(os.path.join(d, "server.lock"), "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("已有 WarmPlayer 服务在运行（单实例锁），本实例退出。")
+        sys.exit(0)
+    fh.write(str(os.getpid()))
+    fh.flush()
+    globals()["LOCK_FH"] = fh
+
+
 def main():
+    _single_instance_lock()
     _raise_fd_limit()
     ap = argparse.ArgumentParser(description="黑胶唱片机本地服务")
     ap.add_argument("--port", type=int, default=0)
@@ -2768,6 +2796,17 @@ def main():
     if FOLDERS:
         threading.Thread(target=do_scan, daemon=True).start()
     awake_reap()
+    try:
+        import numpy as _np
+        _npver = _np.__version__
+    except Exception:
+        _npver = None
+    log("自检：python=%s ffmpeg=%s numpy=%s"
+        % (sys.version.split()[0], FFMPEG or "缺失", _npver or "缺失"))
+    if not FFMPEG:
+        log("警告：未找到 ffmpeg，频谱/转码/取色不可用；安装后重启服务")
+    if not _npver:
+        log("警告：未找到 numpy，频谱不可用；在运行环境 pip install numpy 后重启")
 
     def _term_handler(signum, frame):
         with AWAKE_LOCK:
