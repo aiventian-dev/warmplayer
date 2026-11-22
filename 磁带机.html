@@ -1517,7 +1517,7 @@ body[data-theme="metal"]{--sp-on:#d9dce0;--sp-off:#4b4f55}
   -webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
 body[data-theme="paper"] .cd-mark .cd-logo{background:rgba(30,26,20,.62)}
 /* AUTO REVERSE 标识：与 aiwa 字标同色同视觉语言（描边空心三角 + 宽字距大写），随主题自适应 */
-.cd-mark .cd-rev{display:inline-flex;align-items:center;gap:.55em;font-size:1.32em;letter-spacing:.24em;color:rgba(255,255,255,.55)}
+.cd-mark .cd-rev{display:inline-flex;align-items:center;gap:.55em;font-size:1.96em;letter-spacing:.24em;color:rgba(255,255,255,.55)}
 .cd-mark .cd-rev svg{height:1.06em;width:auto;flex:0 0 auto}
 .cd-mark .cd-rev svg path{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:miter}
 body[data-theme="paper"] .cd-mark .cd-rev{color:rgba(30,26,20,.62)}
@@ -7755,15 +7755,34 @@ function hookNowArt() {
       if (!deck || !mark || !well || !now) return;
       var wr = well.getBoundingClientRect(), mr = mark.getBoundingClientRect(), nr = now.getBoundingClientRect();
       var G0 = nr.top - wr.bottom; if (G0 <= 0) return;
+      /* 目标：相对 v0.79 渲染位置净上提 10px。布局方程解析求解（含居中回弹补偿），幂等。
+         mh=铭牌总高, d=翻带文案相对 1.32em 基线增高；移动 well 居中回弹系数 1/2，桌面 2×nb。 */
+      var mh = mr.height, padT = parseFloat(getComputedStyle(mark).paddingTop) || 0,
+          mFont = parseFloat(getComputedStyle(mark).fontSize) || 11,
+          rev0 = mark.querySelector('.cd-rev'),
+          d = rev0 ? Math.max(0, rev0.getBoundingClientRect().height - mFont * 1.32) : 0;
       if (getComputedStyle(well).flexShrink === '0') {
-        var padT = parseFloat(getComputedStyle(mark).paddingTop) || 0;
-        mark.style.marginTop = Math.max(0, G0 / 3 - padT) + 'px';
+        var mtCur = parseFloat(mark.style.marginTop) || 0;
+        var Gb = G0 - (mh + mtCur) / 2;
+        var mtOld = (Gb + (mh - d) / 2 - 3 * padT) / 2.5;
+        mark.style.marginTop = Math.max(0, mtOld + d - 20) + 'px';
+        mark.style.gap = '';
         well.style.marginBottom = '';
       } else {
+        /* 桌面 well 自动居中 → aiwa 屏幕位 = C-(logoH+gap+revH)，与 nb 无关；
+           杠杆是 mark 内部 gap：+10-d 即净上提 10px，翻带文案位置不动 */
         mark.style.marginTop = '';
-        var a = mr.top - wr.bottom;                 /* 当前 well 下方 auto margin 实占 */
-        var D = G0 - a;                             /* 与 a 无关的常量部分 */
-        well.style.marginBottom = Math.max(0, D / 2) + 'px';   /* 不动点即 1/3，幂等 */
+        well.style.marginBottom = '';
+        mark.style.gap = '';
+        var gap0 = parseFloat(getComputedStyle(mark).gap) || 10;
+        mark.style.gap = Math.max(0, gap0 + 10 - d) + 'px';
+      }
+      /* 翻带文案不高于 aiwa：先还原 CSS 字号再按 logo 实高钳制 */
+      var logo = mark.querySelector('.cd-logo'), rev = mark.querySelector('.cd-rev');
+      if (logo && rev) {
+        rev.style.fontSize = '';
+        var lh = logo.getBoundingClientRect().height, rh = rev.getBoundingClientRect().height;
+        if (lh > 0 && rh > lh) rev.style.fontSize = (parseFloat(getComputedStyle(rev).fontSize) * lh / rh) + 'px';
       }
     }
     window.addEventListener('resize', placeMark);
