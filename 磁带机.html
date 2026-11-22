@@ -6044,7 +6044,7 @@ function reelDisplay(target) {
   const dt = Math.min(.12, (now - (tp.dispT || now)) / 1000);
   tp.dispT = now;
   if (!tp.dispR) { tp.dispR = [target[0], target[1]]; return tp.dispR; }
-  const k = 1 - Math.pow(.0002, dt / .55);
+  const k = 1 - Math.exp(-dt / .55);   /* 0.55s 时间常数的标准指数平滑：单帧最多走 ~20% */
   tp.dispR[0] += (target[0] - tp.dispR[0]) * k;
   tp.dispR[1] += (target[1] - tp.dispR[1]) * k;
   return tp.dispR;
@@ -6903,8 +6903,17 @@ function fit(cv) {
     const prog = tp.pS;
     tp.bw = bw;
     const r = reelRadii(prog, bw);
-    /* 不随翻面互换左右卷的快照硬切：统一交给 reelDisplay 平滑（见 reelDisplay 注释） */
-    const rD = reelDisplay(r);
+    /* 翻面后的「厚度冻结窗」：以翻面那一刻的显示厚度为准，1.2s 内一帧都不变（早期成功版行为）。
+       冻结期间连平滑器一起锁住（dispR 写死为冻结值），否则解冻瞬间 dispR 已跑到实时值会硬切；
+       解冻后由 reelDisplay 从冻结值 0.55s 过渡到实时厚度，任何时刻都没有单帧跳变 */
+    let rD;
+    if (tp.revR && tNow - (tp.revT || 0) < 1200) {
+      tp.dispR = [tp.revR[0], tp.revR[1]]; tp.dispT = tNow;
+      rD = tp.dispR;
+    } else {
+      if (tp.revR) tp.revR = null;
+      rD = reelDisplay(r);
+    }
     const rL = rD[0], rR = rD[1];
 
     const isPrint = (tp.tapeSkin || 'sticker') === 'print';
@@ -8959,11 +8968,12 @@ function hookNowArt() {
       const bwR = cvR ? cvR.getBoundingClientRect().width * .84 : 0;
       const prR = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
       const rrR = reelRadii(prR, bwR);
-      tp.revR = [rrR[0], rrR[1]];
+      /* 用当前屏幕上的厚度（dispR）作为冻结值：翻面瞬间画面完全不动 */
+      tp.revR = tp.dispR ? [tp.dispR[0], tp.dispR[1]] : [rrR[0], rrR[1]];
     } catch (e) { tp.revR = null; }
+    tp.revT = performance.now();
     tp.dir = toSide === 'A' ? 1 : -1;
     tp.side = toSide;
-    if (toSide === 'A') tp.revR = null;
     setCap(true);
     syncDir();
     const a = tp.album;
@@ -9109,6 +9119,7 @@ function hookNowArt() {
     return { dir: tp.dir, side: tp.side, r: r.map(function (v) { return +v.toFixed(4); }),
       ps: +pS.toFixed(4), disp: disp.map(function (v) { return +v.toFixed(4); }),
       drawn: tp.dispR ? tp.dispR.map(function (v) { return +v.toFixed(4); }) : null,
+      revAge: tp.revR ? Math.round(performance.now() - (tp.revT || 0)) : -1,
       rev: tp.revR ? tp.revR.map(function (v) { return +v.toFixed(4); }) : null,
       bw: Math.round(bw) };
   };
