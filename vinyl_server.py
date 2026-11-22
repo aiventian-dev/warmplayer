@@ -2045,6 +2045,10 @@ def _do_scan_inner(folder=None):
     log("标签解析完成：%d 张专辑 / %d 首，用时 %.1fs" % (len(ALBUMS), len(TRACKS), time.time() - t0))
 
     # 封面单独后台补：每张专辑只挑一首有封面的文件去读，绝不阻塞接口
+    # 先用解析完成的标签重建一次快照：todo 必须基于真实专辑键，
+    # 不能沿用扫描中途「占位键+真实键」混合的旧 ALBUMS（否则补错键、真键漏补）
+    with LOCK:
+        ALBUMS = build_albums(list(existing), fast=True)
     holders = {}
     for p in existing:
         if TAGS.get(p, {}).get("hasCover"):
@@ -2074,6 +2078,8 @@ def _do_scan_inner(folder=None):
             log("   补封面 %d / %d" % (i, len(todo)))
 
     with LOCK:
+        # 收尾再重建：封面标志/主色以缓存文件为准，状态与磁盘一致
+        ALBUMS = build_albums(list(existing), fast=True)
         save_json(TINT_FILE, TINTS)
         save_json(SEEN_FILE, SEEN)
         SCAN.update({"active": False, "stage": "", "done": done, "total": len(uniq)})
