@@ -26,6 +26,18 @@ Spinning record, moving tonearm, live VU needles or a 21-band spectrum, sleeve p
 
 ![Sleeve preview](docs/screenshots/vinyl-sleeve.png)
 
+### Colored & picture vinyl
+One switch turns the disc into translucent colored resin pulled from the cover's own colors, grooves and all. A second switch prints the full cover onto the disc — a picture disc — while keeping the groove texture on top.
+
+![Colored vinyl](docs/screenshots/colvinyl.png)
+
+![Picture disc](docs/screenshots/pattern.png)
+
+### Blurred-cover background
+On solid-color themes the cover can be blurred and stretched into the page background, so the whole room takes the album's color.
+
+![Blurred cover background](docs/screenshots/bgblur.png)
+
 ### Cassette deck — sticker skin
 Paper label wrapped over the reels, SIDE A/B box, STEREO mark, cover-derived title band. The window shows the actual tape pack: thick on the left at the start of a side, thinning as it plays.
 
@@ -68,7 +80,9 @@ The deck panel grows a little on narrow screens so the aiwa logo and the "STEREO
 - Ships with a launchd recipe for start-at-login + auto-restart.
 
 ### Themes & meters
-Five panel colors (graphite, black, paper, bronze, silver), switchable meter styles (spectrum / VU, minimal variants), lyrics toggle.
+Five panel themes — graphite ink, pure black, paper, walnut wood, brushed metal — shared by both pages, plus switchable meter styles (spectrum / VU, minimal variants) and a lyrics toggle.
+
+![Tape deck in paper theme](docs/screenshots/tape-paper.png)
 
 ## Quick start
 
