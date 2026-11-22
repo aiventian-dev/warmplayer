@@ -130,6 +130,7 @@ PATHS = {}            # 目录 id -> [该目录下的音频文件路径]（和 e
 TINTS = {}            # album_id -> "#rrggbb"
 SEEN = {}             # album_id -> 首次收录时间（秒），用于「添加时间」排序
 HOLDERS = {}          # album_id -> 含封面的代表文件路径（按需抽封面用）
+ANYCOVER = {}         # album_id -> 任意一首的路径（扫描没到时按需抽封面的兜底）
 SCAN_GUARD = threading.Lock()   # 扫描单飞：同一时刻只允许一个 do_scan
 COVER_LOCK = threading.Lock()   # 按需抽封面串行，避免同张专辑重复抽
 
@@ -1743,6 +1744,13 @@ def extract_cover_now(aid):
                     if e.get("hasCover"):
                         HOLDERS.setdefault(short_hash(album_key(p)[2], 12), p)
         holder = HOLDERS.get(aid)
+        if not holder:
+            # 扫描还没到这张专辑：拿任意一首直接读（read_cover 自带标签解析）
+            if not ANYCOVER and TAGS:
+                with LOCK:
+                    for p in TAGS:
+                        ANYCOVER.setdefault(short_hash(album_key(p)[2], 12), p)
+            holder = ANYCOVER.get(aid)
         if not holder:
             return None
         try:
