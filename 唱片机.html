@@ -4557,6 +4557,11 @@ function markRows(){
 window.__vrCount = function(){ return state.albums.length; };
 window.__vrRescan = function(){ return rescanAll(); };
 window.__vrSheet = function(){ return openSheet(); };
+/* mac 壳媒体键 / Now Playing 钩子（与磁带页 __tp* 同构） */
+window.__vpPlay = play;
+window.__vpPause = pause;
+window.__vpSession = function(){ return state.mounted ? { id: state.mounted.id, track: state.track, playing: !!state.playing, ct: elapsedNow() } : null; };
+window.__vpJump = function(i){ if (!state.mounted) return false; var a = state.mounted; if (!a.tracks || !a.tracks[i]) return false; state.needle = true; if (state.track === i && state.playing && state.loadedId === a.tracks[i].id) { try { audio.currentTime = 0; } catch (e) {} return true; } loadTrack(i, 0); play(); return true; };
 async function openSheet(){
   state.sheetOpen = true;
   el.sheet.classList.add('on');

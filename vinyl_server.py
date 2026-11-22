@@ -87,21 +87,27 @@ class QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-CACHE_DIR = os.path.join(APP_DIR, "cache")
+# 数据根 override（v0.81 套壳预备）：缓存/设置/目录清单可脱离脚本目录，
+# 供 mac app 把数据放进 ~/Library/Application Support；不传则完全保持旧行为。
+_DATA_OVERRIDE = os.environ.get("WARMPLAYER_DATA") or next(
+    (sys.argv[i + 1] for i, a in enumerate(sys.argv)
+     if a == "--data-dir" and i + 1 < len(sys.argv)), "")
+DATA_ROOT = os.path.abspath(os.path.expanduser(_DATA_OVERRIDE)) if _DATA_OVERRIDE else APP_DIR
+CACHE_DIR = os.path.join(DATA_ROOT, "cache")
 COVER_DIR = os.path.join(CACHE_DIR, "covers")
 THUMB_DIR = os.path.join(CACHE_DIR, "covers_s")
-CONF_FILE = os.path.join(APP_DIR, "folders.json")
+CONF_FILE = os.path.join(DATA_ROOT, "folders.json")
 TAGS_FILE = os.path.join(CACHE_DIR, "tags.json")
 TINT_FILE = os.path.join(CACHE_DIR, "tints.json")
 SEEN_FILE = os.path.join(CACHE_DIR, "seen.json")
 PATHS_FILE = os.path.join(CACHE_DIR, "paths.json")
 TRANS_DIR = os.path.join(CACHE_DIR, "trans")
-SETTINGS_FILE = os.path.join(APP_DIR, "settings.json")
+SETTINGS_FILE = os.path.join(DATA_ROOT, "settings.json")
 SETTINGS = {"trans": False}   # 默认不转码，交给浏览器原生解码
 DEFAULT_FOLDER_PWD = "1987"   # 远程访问时进入「音乐目录」的密码，可在 settings.json 的 folder_pwd 改
 TAG_VER = "v3"   # 缓存版本：加 codec 后让旧缓存失效一次
-PAGE_FILE = os.path.join(APP_DIR, "唱片机.html")
-TAPE_FILE = os.path.join(APP_DIR, "磁带机.html")
+PAGE_FILE = os.path.join(os.environ.get("WARMPLAYER_PAGES") or APP_DIR, "唱片机.html")
+TAPE_FILE = os.path.join(os.environ.get("WARMPLAYER_PAGES") or APP_DIR, "磁带机.html")
 
 AUDIO_EXT = {".mp3", ".m4a", ".m4b", ".aac", ".flac", ".wav", ".aif", ".aiff", ".ogg", ".oga", ".opus"}
 MIME = {
@@ -114,9 +120,11 @@ COVER_MIME = {b"\xff\xd8": "image/jpeg", b"\x89PNG": "image/png", b"GIF8": "imag
 SIPS = "/usr/bin/sips" if os.path.exists("/usr/bin/sips") else (shutil.which("sips") or "")
 # launchd 等守护进程环境的 PATH 只有系统四目录，which 会漏掉 homebrew 安装位；
 # 启动期解析一次后全程复用，故这里必须自带常见安装位回退（v0.75）
-FFMPEG = shutil.which("ffmpeg") or next(
+FFMPEG = os.environ.get("WARMPLAYER_FFMPEG") or shutil.which("ffmpeg") or next(
     (c for c in ("/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/bin/ffmpeg")
      if os.path.isfile(c) and os.access(c, os.X_OK)), None)
+if FFMPEG and not (os.path.isfile(FFMPEG) and os.access(FFMPEG, os.X_OK)):
+    FFMPEG = shutil.which("ffmpeg") or None
 METER_DEBUG = bool(os.environ.get("METER_DEBUG"))
 START_TS = time.time()
 
@@ -1363,7 +1371,7 @@ def album_atmos(aid):
             fp = TRACKS.get(t.get("id"))
             if fp:
                 paths.append(fp)
-    probe = shutil.which("ffprobe") or ""
+    probe = os.environ.get("WARMPLAYER_FFPROBE") or shutil.which("ffprobe") or ""
     if not probe:
         return False                       # 不写缓存，免得固化
     result, trusted = False, False
@@ -2833,6 +2841,8 @@ def main():
     _raise_fd_limit()
     ap = argparse.ArgumentParser(description="黑胶唱片机本地服务")
     ap.add_argument("--port", type=int, default=0)
+    ap.add_argument("--data-dir", default=None,
+                    help="数据根（cache/settings/folders）；默认跟随脚本目录。也可用环境变量 WARMPLAYER_DATA")
     ap.add_argument("--host", default="0.0.0.0",
                     help="监听地址，默认 0.0.0.0（局域网可访问）；只想本机用就填 127.0.0.1")
     ap.add_argument("--no-open", action="store_true")
