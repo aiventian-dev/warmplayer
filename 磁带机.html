@@ -6898,22 +6898,21 @@ function fit(cv) {
     const dts = Math.min(.14, (tNow - (tp.pT || tNow)) / 1000);
     tp.pT = tNow;
     const rawP = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
-    tp.pS = (tp.pS == null) ? rawP : tp.pS + (rawP - tp.pS) * Math.min(1, dts * 6);
-    if (Math.abs(rawP - tp.pS) < .006) tp.pS = rawP;
+    if (tp.pLock && tNow - tp.pLock < 800) {
+      /* 翻面后的进度锁：rawP 在 seek 完成前仍是旧面值，若参与平滑会把预置进度拖回去 → 厚度先反向后复原 */
+    } else {
+      tp.pLock = 0;
+      tp.pS = (tp.pS == null) ? rawP : tp.pS + (rawP - tp.pS) * Math.min(1, dts * 6);
+      if (Math.abs(rawP - tp.pS) < .006) tp.pS = rawP;
+    }
     const prog = tp.pS;
     tp.bw = bw;
-    const r = reelRadii(prog, bw);
-    /* 翻面后的「厚度冻结窗」：以翻面那一刻的显示厚度为准，1.2s 内一帧都不变（早期成功版行为）。
-       冻结期间连平滑器一起锁住（dispR 写死为冻结值），否则解冻瞬间 dispR 已跑到实时值会硬切；
-       解冻后由 reelDisplay 从冻结值 0.55s 过渡到实时厚度，任何时刻都没有单帧跳变 */
-    let rD;
-    if (tp.revR && tNow - (tp.revT || 0) < 1200) {
-      tp.dispR = [tp.revR[0], tp.revR[1]]; tp.dispT = tNow;
-      rD = tp.dispR;
-    } else {
-      if (tp.revR) tp.revR = null;
-      rD = reelDisplay(r);
-    }
+    /* 磁带不真翻面，只是原地倒转：厚度按「整盘位置」算（B 面 = 1-单面进度），
+       左卷始终是左卷、右卷始终是右卷，绝不镜像/互换。
+       同一盘位在 A/B 面得到同一厚度，翻面瞬间厚度天然连续（A 的 0.3 ↔ B 的 0.7 完全同值） */
+    const progAll = (tp.dir < 0) ? (1 - prog) : prog;
+    const r = reelRadii(progAll, bw);
+    const rD = reelDisplay([r[0], r[1]]);
     const rL = rD[0], rR = rD[1];
 
     const isPrint = (tp.tapeSkin || 'sticker') === 'print';
@@ -7895,8 +7894,9 @@ function hookNowArt() {
       const bwpx = cv ? cv.getBoundingClientRect().width * .84 : 400;
       const v = bwpx * SURFACE_RATE;
       const prog = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
-      const r = reelRadii(prog, bwpx);
-      const rL = r[0] * bwpx, rR = r[1] * bwpx;   /* 转速用真实半径，显示厚度已由 reelDisplay 平滑 */
+      const progAll = (tp.dir < 0) ? (1 - prog) : prog;
+      const r = reelRadii(progAll, bwpx);
+      const rL = r[0] * bwpx, rR = r[1] * bwpx;   /* 卷径一律按整盘位置，不互换 */
       const sdir = (tp.dir || 1) < 0 ? -1 : 1;
       tp.spin.L += sdir * v / Math.max(1, rL) * dt;
       tp.spin.R += sdir * v / Math.max(1, rR) * dt;
@@ -8972,6 +8972,11 @@ function hookNowArt() {
       tp.revR = tp.dispR ? [tp.dispR[0], tp.dispR[1]] : [rrR[0], rrR[1]];
     } catch (e) { tp.revR = null; }
     tp.revT = performance.now();
+    /* 跨面时不要平滑进度，也不要等 seek 就绪：直接按「已走时长/新面时长」写入目标面进度。
+       A 的 p 与 B 的 1-p 是同一盘位，这样厚度在翻面瞬间天然连续；
+       若留 null 等 rawP，seek 完成前 rawP 仍是旧面值，会闪一帧反向厚度 */
+    tp.pS = toDur ? clamp(1 - elapsed / toDur, 0, 1) : 0;
+    tp.pLock = performance.now();   /* 0.8s 内锁住进度，厚度完全静止，等 seek 就绪后平滑接上 */
     tp.dir = toSide === 'A' ? 1 : -1;
     tp.side = toSide;
     setCap(true);
