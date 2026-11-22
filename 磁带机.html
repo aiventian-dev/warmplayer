@@ -6037,6 +6037,19 @@ function reelRadii(prog, bw) {
 
 function r0px(bw) { return bw * .080; }
 
+/* 卷轴显示半径：所有来源的突变量（翻面换向、A/B 换面、跳曲、seek）都经 ~0.55s 指数平滑，
+   彻底避免「忽然变粗又变细」的硬切；同时 B 面播放时厚度照常随进度变化（不再整面冻结） */
+function reelDisplay(target) {
+  const now = performance.now();
+  const dt = Math.min(.12, (now - (tp.dispT || now)) / 1000);
+  tp.dispT = now;
+  if (!tp.dispR) { tp.dispR = [target[0], target[1]]; return tp.dispR; }
+  const k = 1 - Math.pow(.0002, dt / .55);
+  tp.dispR[0] += (target[0] - tp.dispR[0]) * k;
+  tp.dispR[1] += (target[1] - tp.dispR[1]) * k;
+  return tp.dispR;
+}
+
 function drawReel(ctx, cx, cy, r, r0, rot, lamp) {
   ctx.save();
   ctx.beginPath(); ctx.arc(cx, cy, Math.max(r0, r), 0, Math.PI * 2);
@@ -6890,10 +6903,9 @@ function fit(cv) {
     const prog = tp.pS;
     tp.bw = bw;
     const r = reelRadii(prog, bw);
-    /* 不随翻面互换左右卷：互换会让左卷和右卷的粗细对调，看着就是“忽然变厚再变薄”。
-       反转（dir<0）时直接用翻面那一刻的快照，原地倒转、厚度不动 */
-    const rL = (tp.dir < 0 && tp.revR) ? tp.revR[0] : r[0];
-    const rR = (tp.dir < 0 && tp.revR) ? tp.revR[1] : r[1];
+    /* 不随翻面互换左右卷的快照硬切：统一交给 reelDisplay 平滑（见 reelDisplay 注释） */
+    const rD = reelDisplay(r);
+    const rL = rD[0], rR = rD[1];
 
     const isPrint = (tp.tapeSkin || 'sticker') === 'print';
     ctx.save();
@@ -7780,39 +7792,46 @@ function hookNowArt() {
           csCd = getComputedStyle(cd),
           padTcd = parseFloat(csCd.paddingTop) || 0, padBcd = parseFloat(csCd.paddingBottom) || 0,
           contentH = cr.height - padTcd - padBcd;
+      /* v0.82：aiwa 相对翻带文案上提 10px（文案/磁带/歌词不动）。gap 基线首跑记录保证幂等；
+         mh0 = 还原基线 gap 后的高度，定位方程一律用 mh0，磁带位不随 gap 变化漂移 */
+      var gapCur = parseFloat(getComputedStyle(mark).gap) || 10;
+      if (mark.dataset.gap0 === undefined) mark.dataset.gap0 = String(gapCur);
+      var gapBase = parseFloat(mark.dataset.gap0), LIFT = 10;
+      var mh0 = mh - Math.max(0, gapCur - gapBase);
       /* 目标：铭牌整体（aiwa+翻带）居中于「磁带底 ↔ 歌词顶」间距；磁带自身保持 v0.79.1 位置。
          空间不足（间距容不下铭牌或 margin 越界）回退 v0.79.1 定位。 */
       if (getComputedStyle(well).flexShrink === '0') {
         var mtCur = parseFloat(mark.style.marginTop) || 0;
-        var Gb = G0 - (mh + mtCur) / 2;
-        var mt791 = Math.max(0, (Gb + (mh - d) / 2 - 3 * padT) / 2.5 + d - 20);
-        var freeNat = contentH - wr.height - mh - mt791;
+        var mtRef = (mark.dataset.mt0 !== undefined) ? parseFloat(mark.dataset.mt0) : mtCur;
+        var Gb = G0 - (mh0 + mtRef) / 2;
+        var mt791 = Math.max(0, (Gb + (mh0 - d) / 2 - 3 * padT) / 2.5 + d - 20);
+        var freeNat = contentH - wr.height - mh0 - mt791;
         if (freeNat >= 0) {
           var A = freeNat / 2;                       /* 复现 v0.79.1 居中时的 well 顶距并钉住 */
           cd.style.justifyContent = 'flex-start';
           well.style.marginTop = A + 'px'; well.style.marginBottom = '0px';
           var W = cr.top + padTcd + A + wr.height;   /* 钉住后的磁带底 */
-          var mt = (nr.top - W - (mh - padT)) / 2 - padT;   /* 居中解（视觉块高=mh-padT） */
-          mt = Math.min(Math.max(0, mt), Math.max(0, nr.top - W - mh + padT));   /* 唯一硬约束：铭牌底不越过歌词 */
-          mark.style.marginTop = mt + 'px'; mark.style.gap = '';
+          var mtC = (nr.top - W - (mh0 - padT)) / 2 - padT;   /* 居中解（视觉块高=mh0-padT） */
+          mark.dataset.mt0 = String(mtC);
+          /* 下界 -padT：整体可上提 10px，但视觉块顶不越过磁带底；上界仍为铭牌底不越过歌词 */
+          var mt = Math.min(Math.max(-padT, mtC - LIFT), Math.max(0, nr.top - W - mh0 + padT));
+          mark.style.marginTop = mt + 'px'; mark.style.gap = (gapBase + LIFT) + 'px';
         } else {
           cd.style.justifyContent = ''; well.style.marginTop = ''; well.style.marginBottom = '';
-          mark.style.marginTop = mt791 + 'px'; mark.style.gap = '';
+          mark.style.marginTop = mt791 + 'px'; mark.style.gap = Math.max(0, gapBase + LIFT - d) + 'px';
         }
       } else {
-        var natTop = (contentH - wr.height - mh) / 2;   /* 双 auto margin 的自然顶距 = v0.79.1 磁带位 */
+        var natTop = (contentH - wr.height - mh0) / 2;   /* 双 auto margin 的自然顶距 = v0.79.1 磁带位 */
         var W2 = cr.top + padTcd + natTop + wr.height;
-        var G0c = nr.top - W2, nb = (G0c - mh) / 2;
+        var G0c = nr.top - W2, nb = (G0c - mh0) / 2;
         mark.style.marginTop = ''; cd.style.justifyContent = 'flex-start';
         well.style.marginTop = Math.max(0, natTop) + 'px';
-        if (natTop >= 0 && G0c >= mh) {
-          mark.style.gap = '';
-          well.style.marginBottom = Math.max(0, nb) + 'px';
+        if (natTop >= 0 && G0c >= mh0) {
+          mark.style.gap = (gapBase + LIFT) + 'px';
+          well.style.marginBottom = Math.max(0, nb - LIFT) + 'px';
         } else {
           well.style.marginBottom = '';
-          mark.style.gap = '';
-          var gap0 = parseFloat(getComputedStyle(mark).gap) || 10;
-          mark.style.gap = Math.max(0, gap0 + 10 - d) + 'px';
+          mark.style.gap = Math.max(0, gapBase + LIFT - d) + 'px';
         }
       }
       /* 翻带文案不高于 aiwa：先还原 CSS 字号再按 logo 实高钳制 */
@@ -7868,8 +7887,7 @@ function hookNowArt() {
       const v = bwpx * SURFACE_RATE;
       const prog = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
       const r = reelRadii(prog, bwpx);
-      const rL = ((tp.dir < 0 && tp.revR) ? tp.revR[0] : r[0]) * bwpx;
-      const rR = ((tp.dir < 0 && tp.revR) ? tp.revR[1] : r[1]) * bwpx;
+      const rL = r[0] * bwpx, rR = r[1] * bwpx;   /* 转速用真实半径，显示厚度已由 reelDisplay 平滑 */
       const sdir = (tp.dir || 1) < 0 ? -1 : 1;
       tp.spin.L += sdir * v / Math.max(1, rL) * dt;
       tp.spin.R += sdir * v / Math.max(1, rR) * dt;
@@ -9085,7 +9103,12 @@ function hookNowArt() {
     const bw = cv ? cv.getBoundingClientRect().width * .84 : 0;
     const pr = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
     const r = reelRadii(pr, bw);
+    const pS = (tp.pS == null) ? pr : tp.pS;
+    const rS = reelRadii(pS, bw);
+    const disp = [(tp.dir < 0 && tp.revR) ? tp.revR[0] : rS[0], (tp.dir < 0 && tp.revR) ? tp.revR[1] : rS[1]];
     return { dir: tp.dir, side: tp.side, r: r.map(function (v) { return +v.toFixed(4); }),
+      ps: +pS.toFixed(4), disp: disp.map(function (v) { return +v.toFixed(4); }),
+      drawn: tp.dispR ? tp.dispR.map(function (v) { return +v.toFixed(4); }) : null,
       rev: tp.revR ? tp.revR.map(function (v) { return +v.toFixed(4); }) : null,
       bw: Math.round(bw) };
   };
