@@ -2000,6 +2000,12 @@ html[data-client="car"] .atmos-mid img.dlbimg{width:140px}
           <path d="M21 12a9 9 0 1 1-3-6.7M21 4.6V10h-5.4"/>
         </svg>
       </button>
+      <button class="iconbtn" id="modeBtn" aria-label="切换到唱片机" title="切换到唱片机">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="1.7"/>
+          <path d="M12 6.6a5.4 5.4 0 0 1 5.4 5.4"/>
+        </svg>
+      </button>
       <div class="themes" role="group" aria-label="主题">
         <button data-theme="ink" aria-label="灰"></button>
         <button data-theme="black" aria-label="纯黑"></button>
@@ -5842,6 +5848,17 @@ function seekByTap(e){
     document.addEventListener('webkitfullscreenchange', function(){ syncFs(true); });
     syncFs(false);
     if (!document.fullscreenEnabled) fsBtn.style.display = 'none';   // 车机 WebView 不支持，藏掉免得点了没反应
+  }
+
+  /* ---- 版面切换：共享 vinyl.session，切换后恢复同专辑/同进度/播放态 ---- */
+  const modeBtn = document.getElementById('modeBtn');
+  if (modeBtn){
+    modeBtn.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      try { saveSession(true); } catch (err) {}
+      try { if (document.fullscreenElement) localStorage.setItem('vinyl.wantFs', '1'); } catch (err) {}
+      location.href = '/';
+    });
   }
 
   /* ---- 刷新：带时间戳强刷，刷新后首次触摸自动回到全屏 ---- */
