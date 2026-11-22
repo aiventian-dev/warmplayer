@@ -2565,6 +2565,7 @@ function ensureGraph(){
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC){ startMeters(); return; }
   try { actx = new AC(); } catch (e){ actx = null; }
+  if (actx && window.__vpBgAudio) window.__vpBgAudio(actx);
   startMeters();
 }
 
@@ -2906,7 +2907,7 @@ function startMeters(){
   const nl = document.getElementById('needleL');
   const nr = document.getElementById('needleR');
   let crWatchAt = 0;
-  (function tick(){
+  function tick(){
     const live = !audio.paused || (state.prepWait && state.playing);   /* 读数来自服务端，跟静音无关 */
     const audible = !audio.paused && !audio.muted;   /* 底噪跟着喇叭走，静音就停 */
     /* 爆豆看护：不管走哪个播放栈、事件有没有派发，都按“此刻是否真在出声”对齐 */
@@ -2937,7 +2938,9 @@ function startMeters(){
       setLed('R', Math.min(ms.pkR + g, 10));
     }
     requestAnimationFrame(tick);
-  })();
+  }
+  window.__vpMeterTick = tick;
+  tick();
 }
 
 const LABELS_DB = [-34, -20, -10, 0];   // 数字只留四档，刻度之间留出呼吸
@@ -4254,6 +4257,29 @@ function endScrub(){
 }
 
 /* ================= 主循环 ================= */
+/* 后台保持动态：hidden 标签页 rAF 被浏览器暂停 → worker 时钟兜底 + AudioWorklet（音频线程不受后台节流）主驱动 */
+(function(){
+  function drive(){
+    if (!document.hidden) return;
+    try { if (window.__vpLoop) window.__vpLoop(); } catch (e) {}
+    try { if (window.__vpMeterTick) window.__vpMeterTick(); } catch (e) {}
+  }
+  try {
+    var w = new Worker(URL.createObjectURL(new Blob(['setInterval(function(){postMessage(1)},33)'], { type: 'text/javascript' })));
+    w.onmessage = drive;
+  } catch (e) {}
+  window.__vpBgAudio = function(ctx){
+    try {
+      ctx.audioWorklet.addModule(URL.createObjectURL(new Blob(['class T extends AudioWorkletProcessor{constructor(){super();this.n=0}process(){if(++this.n%4===0)this.port.postMessage(1);return true}}registerProcessor("bgtick",T)'], { type: 'text/javascript' }))).then(function(){
+        var n = new AudioWorkletNode(ctx, 'bgtick');
+        var g = ctx.createGain(); g.gain.value = 0;
+        n.connect(g); g.connect(ctx.destination);
+        n.port.onmessage = drive;
+      }).catch(function(){});
+    } catch (e) {}
+  };
+})();
+window.__vpLoop = loop;
 function loop(){
   if (state.mounted && !state.scrub) renderNow();
   updateArm();

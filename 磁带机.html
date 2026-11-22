@@ -1507,7 +1507,7 @@ body[data-theme="metal"]{--sp-on:#d9dce0;--sp-off:#4b4f55}
   transition:opacity .30s ease}
 
 .cd-mark{width:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
-  gap:6px;
+  gap:10px;
   font:500 calc(var(--deck,600px)*.0138)/1 var(--ui,"Inter",sans-serif);
   letter-spacing:.22em;color:rgba(255,255,255,.34);text-transform:uppercase}
 /* aiwa 字标轮廓：单色（mask 取形、background 上色），随面板/主题自适应 */
@@ -1517,7 +1517,7 @@ body[data-theme="metal"]{--sp-on:#d9dce0;--sp-off:#4b4f55}
   -webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
 body[data-theme="paper"] .cd-mark .cd-logo{background:rgba(30,26,20,.62)}
 /* AUTO REVERSE 标识：与 aiwa 字标同色同视觉语言（描边空心三角 + 宽字距大写），随主题自适应 */
-.cd-mark .cd-rev{display:inline-flex;align-items:center;gap:.55em;color:rgba(255,255,255,.55)}
+.cd-mark .cd-rev{display:inline-flex;align-items:center;gap:.55em;font-size:1.32em;letter-spacing:.24em;color:rgba(255,255,255,.55)}
 .cd-mark .cd-rev svg{height:1.06em;width:auto;flex:0 0 auto}
 .cd-mark .cd-rev svg path{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:miter}
 body[data-theme="paper"] .cd-mark .cd-rev{color:rgba(30,26,20,.62)}
@@ -1713,7 +1713,7 @@ body[data-theme="paper"] .cd-mark .cd-rev{color:rgba(30,26,20,.62)}
     perspective:none}
   .cdeck{padding:1% 4.5% 5.5%}
   .cd-well{max-height:none!important;aspect-ratio:100/64;margin:0;flex:0 0 auto}
-  .cd-mark{font-size:11px;letter-spacing:.14em;padding-top:2.2%;gap:6px;
+  .cd-mark{font-size:11px;letter-spacing:.14em;padding-top:2.2%;gap:9px;
     flex-wrap:nowrap;white-space:nowrap;overflow:visible}
   .cd-mark .cd-logo{width:min(24%,170px)}
   .cd-mark b{letter-spacing:.2em}
@@ -2908,6 +2908,7 @@ function ensureGraph(){
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC){ startMeters(); return; }
   try { actx = new AC(); } catch (e){ actx = null; }
+  if (actx && window.__tpBgAudio) window.__tpBgAudio(actx);
   startMeters();
 }
 
@@ -3259,7 +3260,7 @@ function startMeters(){
   const nl = document.getElementById('needleL');
   const nr = document.getElementById('needleR');
   let crWatchAt = 0;
-  (function tick(){
+  function tick(){
     const live = !audio.paused || (state.prepWait && state.playing);   /* 读数来自服务端，跟静音无关 */
     const audible = !audio.paused && !audio.muted;   /* 底噪跟着喇叭走，静音就停 */
     /* 爆豆看护：不管走哪个播放栈、事件有没有派发，都按“此刻是否真在出声”对齐 */
@@ -3290,7 +3291,9 @@ function startMeters(){
       setLed('R', Math.min(ms.pkR + g, 10));
     }
     requestAnimationFrame(tick);
-  })();
+  }
+  window.__tpMeterTick = tick;
+  tick();
 }
 
 const LABELS_DB = [-34, -20, -10, 0];   // 数字只留四档，刻度之间留出呼吸
@@ -5972,7 +5975,8 @@ function blurCover(w, h, img, blurPx, tint) {
 }
 
 function rr(ctx, x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2);
+  if (!(w > 0 && h > 0)) { ctx.beginPath(); return; }   /* 布局过渡期画布可能不足 1px，负半径会让 arcTo 抛错 */
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -7720,6 +7724,60 @@ function hookNowArt() {
 
   /* ---------- 灯 / 走带 ---------- */
   const SURFACE_RATE = .476; /* 每秒 0.476 盒宽 ≈ 4.76cm/s */
+
+  /* 后台保持动态：hidden 标签页 rAF 被浏览器暂停 → worker 时钟兜底 + AudioWorklet（音频线程不受后台节流）主驱动 */
+  (function(){
+    function drive(){
+      if (!document.hidden) return;
+      try { if (window.__tpFrame) window.__tpFrame(performance.now()); } catch (e) {}
+      try { if (window.__tpMeterTick) window.__tpMeterTick(); } catch (e) {}
+    }
+    try {
+      var w = new Worker(URL.createObjectURL(new Blob(['setInterval(function(){postMessage(1)},33)'], { type: 'text/javascript' })));
+      w.onmessage = drive;
+    } catch (e) {}
+    window.__tpBgAudio = function(ctx){
+      try {
+        ctx.audioWorklet.addModule(URL.createObjectURL(new Blob(['class T extends AudioWorkletProcessor{constructor(){super();this.n=0}process(){if(++this.n%4===0)this.port.postMessage(1);return true}}registerProcessor("bgtick",T)'], { type: 'text/javascript' }))).then(function(){
+          var n = new AudioWorkletNode(ctx, 'bgtick');
+          var g = ctx.createGain(); g.gain.value = 0;
+          n.connect(g); g.connect(ctx.destination);
+          n.port.onmessage = drive;
+        }).catch(function(){});
+      } catch (e) {}
+    };
+    /* 铭牌定位：aiwa 落在「磁带底 → 歌词顶」间距的 1/3 处，且歌词/播放器不位移。
+       桌面 well 靠 margin:auto 0 居中且可被 flex 压缩 → 只改 well 的下 auto margin 为定值（总高恒定，不会压扁带仓）；
+       移动 well 为 flex:0 0 auto 不可压缩 → 用 mark 的 marginTop 下移铭牌。 */
+    function placeMark(){
+      var deck = document.getElementById('deck'), mark = document.querySelector('.cd-mark'),
+          well = document.querySelector('.cd-well'), now = document.querySelector('.now');
+      if (!deck || !mark || !well || !now) return;
+      var wr = well.getBoundingClientRect(), mr = mark.getBoundingClientRect(), nr = now.getBoundingClientRect();
+      var G0 = nr.top - wr.bottom; if (G0 <= 0) return;
+      if (getComputedStyle(well).flexShrink === '0') {
+        var padT = parseFloat(getComputedStyle(mark).paddingTop) || 0;
+        mark.style.marginTop = Math.max(0, G0 / 3 - padT) + 'px';
+        well.style.marginBottom = '';
+      } else {
+        mark.style.marginTop = '';
+        var a = mr.top - wr.bottom;                 /* 当前 well 下方 auto margin 实占 */
+        var D = G0 - a;                             /* 与 a 无关的常量部分 */
+        well.style.marginBottom = Math.max(0, D / 2) + 'px';   /* 不动点即 1/3，幂等 */
+      }
+    }
+    window.addEventListener('resize', placeMark);
+    setTimeout(function(){
+      placeMark();
+      try {
+        var ro = new ResizeObserver(function(){ placeMark(); });
+        ro.observe(document.querySelector('.cd-well'));
+        ro.observe(document.querySelector('.cd-mark'));
+      } catch (e) {}
+    }, 350);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ placeMark(); });
+  })();
+  window.__tpFrame = frame;
 
   function frame(ts) {
     requestAnimationFrame(frame);
