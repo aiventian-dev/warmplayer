@@ -112,7 +112,11 @@ MIME = {
 COVER_MIME = {b"\xff\xd8": "image/jpeg", b"\x89PNG": "image/png", b"GIF8": "image/gif", b"BM": "image/bmp"}
 
 SIPS = "/usr/bin/sips" if os.path.exists("/usr/bin/sips") else (shutil.which("sips") or "")
-FFMPEG = shutil.which("ffmpeg")
+# launchd 等守护进程环境的 PATH 只有系统四目录，which 会漏掉 homebrew 安装位；
+# 启动期解析一次后全程复用，故这里必须自带常见安装位回退
+FFMPEG = shutil.which("ffmpeg") or next(
+    (c for c in ("/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/bin/ffmpeg")
+     if os.path.isfile(c) and os.access(c, os.X_OK)), None)
 METER_DEBUG = bool(os.environ.get("METER_DEBUG"))
 
 LOCK = threading.RLock()
