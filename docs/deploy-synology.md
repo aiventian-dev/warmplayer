@@ -105,3 +105,20 @@ Mac 退化为纯客户端。不要两边同时当曲库主机，缓存只认一�
 - One instance per host (flock lock inside the container). / 每主机单实例（容器内 flock 锁）。
 - Container Manager UI works too: create the project from `deploy/compose.yaml`, same volumes/ports.
   也可以在 Container Manager 界面用该 compose 建项目，卷与端口相同。
+
+## 6. Field notes / 实测记录（DSM 7.4 · x86_64 · Docker 24.0.2）
+
+一次真实部署踩过的坑与验收结果，照抄可复现：
+Pitfalls and acceptance results from one real install — copy-paste reproducible.
+
+- 音乐共享实测在 `/volume3/Music`（卷号以 `ls -d /volume*/Music` 为准）；数据卷 `/volume1/docker/warmplayer/data`。
+- 加速站 `docker.1panel.live/library/python:3.11-slim` 拉取后 retag；`PIP_INDEX` 清华源实测 39MB/s。
+  debian 源直连可用但慢：apt 装 ffmpeg 共 166 个包、约 10 分钟；急可换 tuna 源。
+- **DSM 的 sftp 限制目标路径**：scp 到 `/tmp` 报 `dest open … No such file`、到家目录报 Permission denied。
+  改 tar 流式上传（认证走 pty、数据走管道）：
+  `tar czf - -C <repo> --exclude=.git --exclude=__pycache__ . | ssh <nas> 'mkdir -p <dir> && tar xzf - -C <dir>'`
+- 长构建后台跑：`nohup sh /tmp/wp_deploy.sh > /tmp/wp_deploy.log 2>&1 &`，轮询日志等 `DEPLOY_DONE`。
+  legacy builder 输出按步骤缓冲，中途"没动静"不等于卡死。
+- DSM 的 sudo 凭据按 tty 记：每条 ssh 会话先 `echo <pw> | sudo -S true`，同会话内才能 `sudo -n`。
+- 验收：容器自检 `ffmpeg=/usr/bin/ffmpeg numpy=2.4.6`；局域网 `/api/health` ok、`/` 与 `/tape` 200；
+  `docker restart` 后 12 秒回绿；inspect 确认 `restart=unless-stopped`、音乐挂载 `(ro)`。
