@@ -28,7 +28,7 @@ import time
 import urllib.parse
 import webbrowser
 import socket
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -98,7 +98,7 @@ PATHS_FILE = os.path.join(CACHE_DIR, "paths.json")
 TRANS_DIR = os.path.join(CACHE_DIR, "trans")
 SETTINGS_FILE = os.path.join(APP_DIR, "settings.json")
 SETTINGS = {"trans": False}   # 默认不转码，交给浏览器原生解码
-DEFAULT_FOLDER_PWD = "warmplayer"   # 远程访问时进入「音乐目录」的密码，可在 settings.json 的 folder_pwd 改
+DEFAULT_FOLDER_PWD = "1987"   # 远程访问时进入「音乐目录」的密码，可在 settings.json 的 folder_pwd 改
 TAG_VER = "v3"   # 缓存版本：加 codec 后让旧缓存失效一次
 PAGE_FILE = os.path.join(APP_DIR, "唱片机.html")
 TAPE_FILE = os.path.join(APP_DIR, "磁带机.html")
@@ -113,7 +113,7 @@ COVER_MIME = {b"\xff\xd8": "image/jpeg", b"\x89PNG": "image/png", b"GIF8": "imag
 
 SIPS = "/usr/bin/sips" if os.path.exists("/usr/bin/sips") else (shutil.which("sips") or "")
 # launchd 等守护进程环境的 PATH 只有系统四目录，which 会漏掉 homebrew 安装位；
-# 启动期解析一次后全程复用，故这里必须自带常见安装位回退
+# 启动期解析一次后全程复用，故这里必须自带常见安装位回退（v0.75）
 FFMPEG = shutil.which("ffmpeg") or next(
     (c for c in ("/usr/local/bin/ffmpeg", "/opt/homebrew/bin/ffmpeg", "/usr/bin/ffmpeg")
      if os.path.isfile(c) and os.access(c, os.X_OK)), None)
@@ -129,6 +129,9 @@ TAGS = {}             # path -> {"m":mtime,"s":size,"tags":{...},"hasCover":bool
 PATHS = {}            # 目录 id -> [该目录下的音频文件路径]（和 enabled 无关，永远保留）
 TINTS = {}            # album_id -> "#rrggbb"
 SEEN = {}             # album_id -> 首次收录时间（秒），用于「添加时间」排序
+HOLDERS = {}          # album_id -> 含封面的代表文件路径（按需抽封面用）
+SCAN_GUARD = threading.Lock()   # 扫描单飞：同一时刻只允许一个 do_scan
+COVER_LOCK = threading.Lock()   # 按需抽封面串行，避免同张专辑重复抽
 
 
 # ---------------------------------------------------------------- 基础工具
@@ -145,10 +148,13 @@ def load_json(path, default):
 
 
 def save_json(path, data):
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=1)
-    os.replace(tmp, path)
+    # 串行 + 每次调用独立 tmp：并发调用共用一个 .tmp 会互相 replace 掉对方的临时文件
+    # （FileNotFoundError），且 dump 期间别的线程改 dict 会炸迭代器。LOCK 是 RLock，可嵌套。
+    with LOCK:
+        tmp = "%s.tmp.%d.%d" % (path, os.getpid(), threading.get_ident())
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, path)
 
 
 def sniff_image(data):
@@ -1725,6 +1731,41 @@ def avg_tint(img_path):
     return None
 
 
+def extract_cover_now(aid):
+    """缓存没有就现抽一张（扫描没跑完时页面也能出封面）。串行防重复抽。"""
+    with COVER_LOCK:
+        cp = cover_path(aid)
+        if cp:
+            return cp
+        if not HOLDERS and TAGS:
+            with LOCK:
+                for p, e in TAGS.items():
+                    if e.get("hasCover"):
+                        HOLDERS.setdefault(short_hash(album_key(p)[2], 12), p)
+        holder = HOLDERS.get(aid)
+        if not holder:
+            return None
+        try:
+            raw = read_cover(holder)
+            if not raw:
+                return None
+            cp = save_cover(aid, raw, sniff_image(raw))
+            tint = avg_tint(cp) if cp else None
+            with LOCK:
+                for a in ALBUMS:
+                    if a["id"] == aid:
+                        a["cover"] = True
+                        a["ver"] = short_hash(aid + str(time.time()), 6)
+                        if tint:
+                            a["tint"] = tint
+                            TINTS[aid] = tint
+                        break
+            return cp
+        except Exception as e:
+            log("按需抽封面失败 %s：%r" % (aid, e))
+            return None
+
+
 # ---------------------------------------------------------------- 扫描
 def iter_audio(root):
     for dirpath, dirnames, filenames in os.walk(root):
@@ -1881,6 +1922,22 @@ def rebuild_albums():
 
 
 def do_scan(folder=None):
+    # 单飞：大曲库一轮扫描几十分钟，期间加目录/点重扫会再起一个扫描线程，
+    # 两线程同写 TAGS/SCAN/缓存文件是并发崩溃的根源。重复触发直接忽略。
+    if not SCAN_GUARD.acquire(blocking=False):
+        log("已有扫描在进行，忽略重复触发")
+        return
+    try:
+        return _do_scan_inner(folder)
+    except Exception as e:
+        log("扫描被异常中断（状态已复位，可重新扫描）：%r" % e)
+    finally:
+        with LOCK:
+            SCAN.update({"active": False, "stage": ""})
+        SCAN_GUARD.release()
+
+
+def _do_scan_inner(folder=None):
     t0 = time.time()
     with LOCK:
         SCAN.update({"active": True, "folderName": (folder["name"] if folder else "全部目录"), "done": 0, "total": 0})
@@ -1911,10 +1968,11 @@ def do_scan(folder=None):
 
     # 先用「目录名 + 文件名」占位，立刻把唱片墙填上（这时候一个字节都不用读）
     guessed = 0
-    for p in uniq:
-        if p not in TAGS:
-            TAGS[p] = {"m": 0, "s": 0, "v": 0, "tags": guess_tags(p), "hasCover": False}
-            guessed += 1
+    with LOCK:
+        for p in uniq:
+            if p not in TAGS:
+                TAGS[p] = {"m": 0, "s": 0, "v": 0, "tags": guess_tags(p), "hasCover": False}
+                guessed += 1
     global ALBUMS
     fresh = build_albums(uniq, fast=True)
     with LOCK:
@@ -1929,11 +1987,15 @@ def do_scan(folder=None):
         nonlocal done
         global ALBUMS
         try:
-            TAGS[p] = file_entry(p)
+            entry = file_entry(p)
         except Exception:
-            pass
-        done += 1
+            entry = None
         with LOCK:
+            if entry is not None:
+                TAGS[p] = entry
+                if entry.get("hasCover"):
+                    HOLDERS[short_hash(album_key(p)[2], 12)] = p
+            done += 1
             SCAN["done"] = done
         # 每 300 首把结果发布一次，页面边扫边涨
         if done - last_pub[0] >= 300:
@@ -1955,7 +2017,13 @@ def do_scan(folder=None):
     on_volume = any(f["path"].startswith("/Volumes/") for f in targets)
     workers = 24 if on_volume else 8
     with ThreadPoolExecutor(max_workers=max(8, workers)) as ex:
-        list(ex.map(work, uniq))
+        # 逐项收结果：单首异常只跳过该首，不再把整轮扫描炸死（ex.map 会抛断迭代）
+        futs = [ex.submit(work, p) for p in uniq]
+        for fu in as_completed(futs):
+            try:
+                fu.result()
+            except Exception as e:
+                log("扫描单项异常（跳过该首，不影响整轮）：%r" % e)
 
     # 清掉已被删掉的路径
     existing = set(uniq)
@@ -2420,7 +2488,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         if p.startswith("/api/cover/"):
             aid = p.split("/")[-1]
-            cp = cover_path(re.sub(r"[^0-9a-f]", "", aid))
+            aid = re.sub(r"[^0-9a-f]", "", aid)
+            cp = cover_path(aid) or extract_cover_now(aid)
             if not cp:
                 self._err("没有封面", 404)
                 return
