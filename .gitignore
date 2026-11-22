@@ -1,0 +1,8 @@
+# 本地运行产物 / 个人配置，勿提交
+cache/
+folders.json
+settings.json
+*.log
+.DS_Store
+备份/
+快照/

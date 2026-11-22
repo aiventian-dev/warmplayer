@@ -1,0 +1,10 @@
+{
+ "folders": [
+  {
+   "id": "example01",
+   "name": "My Music",
+   "path": "/path/to/your/music",
+   "enabled": true
+  }
+ ]
+}
