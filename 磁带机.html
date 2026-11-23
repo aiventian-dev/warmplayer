@@ -7809,25 +7809,26 @@ function hookNowArt() {
       /* 目标：铭牌整体（aiwa+翻带）居中于「磁带底 ↔ 歌词顶」间距；磁带自身保持 v0.79.1 位置。
          空间不足（间距容不下铭牌或 margin 越界）回退 v0.79.1 定位。 */
       if (getComputedStyle(well).flexShrink === '0') {
-        var mtCur = parseFloat(mark.style.marginTop) || 0;
-        var mtRef = (mark.dataset.mt0 !== undefined) ? parseFloat(mark.dataset.mt0) : mtCur;
-        var Gb = G0 - (mh0 + mtRef) / 2;
-        var mt791 = Math.max(0, (Gb + (mh0 - d) / 2 - 3 * padT) / 2.5 + d - 20);
-        var freeNat = contentH - wr.height - mh0 - mt791;
-        if (freeNat >= 0) {
-          var A = freeNat / 2;                       /* 复现 v0.79.1 居中时的 well 顶距并钉住 */
-          cd.style.justifyContent = 'flex-start';
-          well.style.marginTop = A + 'px'; well.style.marginBottom = '0px';
-          var W = cr.top + padTcd + A + wr.height;   /* 钉住后的磁带底 */
-          var mtC = (nr.top - W - (mh0 - padT)) / 2 - padT;   /* 居中解（视觉块高=mh0-padT） */
-          mark.dataset.mt0 = String(mtC);
-          /* 下界 -padT：整体可上提 10px，但视觉块顶不越过磁带底；上界仍为铭牌底不越过歌词 */
-          var mt = Math.min(Math.max(-padT, mtC - LIFT), Math.max(0, nr.top - W - mh0 + padT));
-          mark.style.marginTop = mt + 'px'; mark.style.gap = (gapBase + LIFT) + 'px';
-        } else {
-          cd.style.justifyContent = ''; well.style.marginTop = ''; well.style.marginBottom = '';
-          mark.style.marginTop = mt791 + 'px'; mark.style.gap = Math.max(0, gapBase + LIFT - d) + 'px';
-        }
+        /* v0.82.3 回退：移动端恢复 v0.81 的实测定位——先把铭牌清空、让磁带回到 v0.81 的居中位，
+           记下这个真实 well 顶 W0 再钉住；v0.82 曾用解析式自己算钉位，算高了 5.5px，磁带压到表头。
+           之后再叠 aiwa 上提 10px：gap +10 且铭牌整体上移 10 → 磁带/翻带文案/歌词全部不动。 */
+        cd.style.justifyContent = ''; well.style.marginTop = ''; well.style.marginBottom = '';
+        mark.style.gap = ''; mark.style.marginTop = '';
+        void well.offsetHeight;                    /* 强制回流，拿到 v0.81 自然位 */
+        var wr2 = well.getBoundingClientRect(), mr2 = mark.getBoundingClientRect(), nr2 = now.getBoundingClientRect();
+        var mh2 = mr2.height, G2 = nr2.top - wr2.bottom;
+        var mtCur = parseFloat(getComputedStyle(mark).marginTop) || 0;
+        var Gb = G2 - (mh2 + mtCur) / 2;
+        var mt791 = Math.max(0, (Gb + (mh2 - d) / 2 - 3 * padT) / 2.5 + d - 20);
+        mark.style.marginTop = mt791 + 'px';       /* v0.81 的铭牌 margin */
+        void well.offsetHeight;
+        var W0 = well.getBoundingClientRect().top; /* v0.81 磁带真实位 */
+        cd.style.justifyContent = 'flex-start'; well.style.marginTop = '0px';
+        void well.offsetHeight;                    /* 只差一个可测的偏移量，直接补回去 */
+        well.style.marginTop = (W0 - well.getBoundingClientRect().top) + 'px';
+        well.style.marginBottom = '0px';
+        mark.style.gap = (gapBase + LIFT) + 'px';
+        mark.style.marginTop = (mt791 - LIFT) + 'px';
       } else {
         var natTop = (contentH - wr.height - mh0) / 2;   /* 双 auto margin 的自然顶距 = v0.79.1 磁带位 */
         var W2 = cr.top + padTcd + natTop + wr.height;
