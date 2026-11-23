@@ -224,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     @objc func cmdTogglePlay() { evalJS("(function(){var s=window.__tpSession?__tpSession():(window.__vpSession?__vpSession():null);if(!s)return 'none';if(s.playing){(window.__tpPause||window.__vpPause)();}else{(window.__tpPlay||window.__vpPlay)();}return 'ok';})()") }
     @objc func cmdNext() { evalJS("(function(){var s=window.__tpSession?__tpSession():(window.__vpSession?__vpSession():null);if(!s)return 'none';(window.__tpJump||window.__vpJump)(s.track+1);return 'ok';})()") }
     @objc func cmdPrev() { evalJS("(function(){var s=window.__tpSession?__tpSession():(window.__vpSession?__vpSession():null);if(!s)return 'none';(window.__tpJump||window.__vpJump)(s.ct>3?s.track:s.track-1);return 'ok';})()") }
-    @objc func cmdMode() { evalJS("(function(){var b=document.getElementById('modeBtn');if(b){b.click();return 'ok'}return 'none'})()") }
+    @objc func cmdMode() { evalJS("(function(){var p=location.pathname||'/';location.href=(p.indexOf('/tape')>=0?'/':'/tape');return 'ok'})()") }
     @objc func cmdReload() { web.reload() }
 
     @objc func toggleLogin(_ sender: NSMenuItem) {

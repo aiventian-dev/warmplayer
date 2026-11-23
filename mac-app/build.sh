@@ -4,7 +4,7 @@
 # 用法：bash build.sh [输出.app路径]   默认 ../WarmPlayer.app
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SVC="$HERE/../唱片机-服务版"
+SVC="$HERE/.."
 OUT="${1:-$HERE/../WarmPlayer.app}"
 BV="$HOME/.warmplayer/buildvenv"
 WORK="${WPBUILD:-/tmp/wpbuild}"
@@ -52,8 +52,8 @@ cat > "$OUT/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key><string>WarmPlayer</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.81.0</string>
-  <key>CFBundleVersion</key><string>81</string>
+  <key>CFBundleShortVersionString</key><string>0.83.0</string>
+  <key>CFBundleVersion</key><string>830</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
