@@ -2474,6 +2474,45 @@ const hash = str => { let h = 2166136261; for (let i = 0; i < str.length; i++){ 
 const mulberry = a => function(){ a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 const enc = s => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
 
+/* ================= 视口变化统一调度 =================
+   以前每出现一个新的 resize / fullscreen 需求，就多一个监听、多一趟全量重排；
+   进全屏时这些趟数是叠着跑的（实测一次切换要跑 4~8 趟布局 + 4 次画布重绘）。
+   现在所有视口相关的活都登记到同一张任务表：同名只保留最后一次，尺寸安定后跑一趟。
+   键名前缀决定执行顺序：0prep 清缓存 → 1car 断点类 → 2layout 量尺寸 → 3rows 铺列表
+   → 4mark 铭牌 → 5case 落盒+带仓 → 6pack 封底 → 7warm 预热。 */
+window.__vpSoon = (function () {
+  /* 按延迟分桶。「马上要对的」（100ms）和「表面稳定之后再做的」（380ms）不能共用一个 timer：
+     共用的话谁后登记谁把对方的时间一起改掉，要么白等、要么白干。 */
+  const buckets = Object.create(null);
+  function bucketOf(d){
+    return buckets[d] || (buckets[d] = { tasks: Object.create(null), timer: 0 });
+  }
+  function run(b) {
+    const tasks = b.tasks;
+    const keys = Object.keys(tasks).sort();
+    b.tasks = Object.create(null);
+    for (let i = 0; i < keys.length; i++) {
+      try { tasks[keys[i]](); } catch (e) {}
+    }
+    /* 这一趟把版面改完了，带仓画布的矩形缓存作废，下一帧在干净排版上重测一次 */
+    try { if (window.__bayGeoDrop) window.__bayGeoDrop(); } catch (e) {}
+  }
+  window.__vpRunNow = function () {
+    for (const d in buckets) {
+      const b = buckets[d];
+      clearTimeout(b.timer); b.timer = 0;
+      run(b);
+    }
+  };
+  return function (name, fn, delay) {
+    const d = delay == null ? 100 : delay;
+    const b = bucketOf(d);
+    b.tasks[name] = fn;
+    clearTimeout(b.timer);
+    b.timer = setTimeout(function(){ b.timer = 0; run(b); }, d);
+  };
+})();
+
 /* ================= 状态 ================= */
 const state = {
   lyrTitle: false,       // 把歌词写进系统歌曲信息（车机标题条滚动显示歌词）
@@ -2519,8 +2558,10 @@ function syncCarClass(){
   document.body.classList.toggle('strip', stripMode());
 }
 window.addEventListener('resize', function(){
-  syncCarClass();
-  if (shelfList.length){ winStart = winEnd = -1; renderWindow(true); }
+  window.__vpSoon('1car', syncCarClass);
+  window.__vpSoon('3rows', function(){
+    if (shelfList.length){ renderWindowResize(); }
+  });
 });
 syncCarClass();
 function shelfHidden(){ return document.body.classList.contains('shelf-off'); }
@@ -2590,13 +2631,20 @@ function layout(){
   deckCached = px;
   document.documentElement.style.setProperty('--deck', px + 'px');
   el.deckWrap.style.height = px + 'px';
+  if (window.__bayGeoDrop) window.__bayGeoDrop();
 }
 
 /* 舞台变宽/变窄（收起展开唱片架、进全屏、转屏）就重算唱盘尺寸；
    ResizeObserver 在浏览器排版之后回调，不用每帧手动测，动画更顺 */
 function watchStage(){
   if (typeof ResizeObserver === 'undefined') return false;
-  const ro = new ResizeObserver(function(){ layout(); });
+  /* 一帧最多算一趟：舞台/唱盘互相影响时 RO 会连续回调，以前每次都同步 layout，
+     一次换尺寸能叠出十几趟（每趟六次实测 + 写 --deck）。 */
+  let tick = 0;
+  const ro = new ResizeObserver(function(){
+    if (tick) return;
+    tick = requestAnimationFrame(function(){ tick = 0; layout(); });
+  });
   ro.observe(el.stage);
   ro.observe(el.deckWrap);
   return true;
@@ -4647,6 +4695,7 @@ function setTheme(t){
     document.documentElement.style.backgroundColor = THEME_BG[t];
   }
   tintKey = null;
+  if (window.__bayGeoDrop) window.__bayGeoDrop();   // 主题换了版面尺寸就变，带仓矩形重新量一次
   const cur = state.sleeve ? state.sleeve.album : state.mounted;
   if (cur) setTimeout(function(){ setTint(cur); }, 30);
   Array.prototype.forEach.call(document.querySelectorAll('.themes button'), b => b.classList.toggle('on', b.dataset.theme === t));
@@ -4722,6 +4771,8 @@ function sortAlbums(list){
 
 let shelfList = [];
 let winStart = -1, winEnd = -1;
+/* 架上「现在真的铺着哪几行」+ 当时用的步长：换尺寸时用来判断能不能只挪窗口、不重铺 DOM */
+let renderedStart = -1, renderedEnd = -1, renderedStride = 0, renderedStrip = null;
 
 let _rowH = 0;
 const thumbPreload = Object.create(null);
@@ -4762,6 +4813,7 @@ function renderShelf(){
         : (state.q ? '没有匹配「' + esc(state.q) + '」的唱片<span>换个字再试</span>'
                    : '唱片架是空的<span>点下方「+ 音乐目录」添加一个文件夹</span>')))
       + '</div>';
+    renderedStart = renderedEnd = -1;
     return;
   }
   renderWindow(true);
@@ -4798,6 +4850,7 @@ function renderWindow(force){
   let end = Math.min(total, Math.ceil((top + viewH) / stride) + over);
   if (!force && start === winStart && end === winEnd) return;
   winStart = start; winEnd = end;
+  renderedStart = start; renderedEnd = end; renderedStride = stride; renderedStrip = strip;
 
   // 把后面十几张的缩略图提前拉进缓存，滚动时直接命中
   for (let i = end; i < Math.min(total, end + 14); i++){
@@ -4855,6 +4908,32 @@ function renderWindow(force){
   markRows();
   warmVisible();
   preloadThumbs(end + 8);
+}
+
+/* 换尺寸（进/出全屏、转屏、拖窗口）专用：先按新步长算窗口，能沿用就一行 DOM 都不动。
+   以前这里一律 renderWindow(true)：把窗口里三十来行 button 全部重建成字符串再 innerHTML，
+   每行还挂着封面底图，重建 = 三十张图重新解码+重新光栅，正好撞在浏览器重建渲染表面那一帧上。
+   行高是 CSS 给的，尺寸一变行自己就跟着变；只要步长没变、需要的那段仍落在已铺的范围内，
+   挪一下窗口就够了 —— 多铺的几行本来就在视口外。 */
+function renderWindowResize(){
+  if (!shelfList.length) return;
+  const strip = stripMode();
+  const stride = strip ? stripStride() : rowStride();
+  const viewH = strip ? (el.shelf.clientWidth || 600)
+                      : (el.shelf.clientHeight || (carPortrait() ? 1500 : 800));
+  const top = strip ? (el.shelf.scrollLeft || 0) : (el.shelf.scrollTop || 0);
+  const over = strip ? 4 : 10;
+  const total = shelfList.length;
+  const start = Math.max(0, Math.floor(top / stride) - over);
+  const end = Math.min(total, Math.ceil((top + viewH) / stride) + over);
+  if (strip === renderedStrip && stride === renderedStride && renderedStart >= 0
+      && start >= renderedStart && end <= renderedEnd){
+    winStart = start; winEnd = end;
+    preloadThumbs(winEnd + 8);
+    return;
+  }
+  winStart = winEnd = -1;
+  renderWindow(true);
 }
 
 const thumbSeen = {};
@@ -5418,10 +5497,8 @@ document.addEventListener('keydown', function(e){
 });
 
 window.addEventListener('resize', function(){
-  _rowH = 0;
-  layout();
-  try { renderWindow(true); } catch (e){}
-  setTimeout(function(){ try { renderWindow(true); } catch (e){} }, 260);
+  window.__vpSoon('0prep', function(){ _rowH = 0; });
+  window.__vpSoon('2layout', function(){ try { layout(); } catch (e){} });
 });
 
 /* ================= 竖屏版式（车机 / iPad 竖握） ================= */
@@ -5496,7 +5573,7 @@ function seekByTap(e){
   applyMeterStyle(mstyle);
   if (el.shelf){
     el.shelf.addEventListener('scroll', warmVisible, { passive: true });
-    window.addEventListener('resize', warmVisible);
+    window.addEventListener('resize', function(){ window.__vpSoon('7warm', warmVisible); });
   }
   const msel = document.getElementById('meterSel');
   if (msel) msel.addEventListener('change', function(){
@@ -5766,7 +5843,7 @@ function seekByTap(e){
 
   /* ---- 全屏 ---- */
   const fsBtn = document.getElementById('fullBtn');
-  let fsRelayoutT = 0, bgLockT = 0;
+  let fsRelayoutT = 0, bgLockT = 0, fsSafeT = 0;
   /* 全屏切换时浏览器会重建渲染表面，那一帧必定黑一下。
      这里只把「页面自己的重活」从那一帧挪开：布局立刻算（便宜），
      重铺虚拟列表延后到画面稳定之后；木纹/金属的整屏纹理先锁成当时的像素尺寸，
@@ -5786,17 +5863,31 @@ function seekByTap(e){
     fsBtn.setAttribute('aria-label', on ? '退出全屏' : '全屏');
     fsBtn.title = on ? '退出全屏' : '全屏';
     if (!full) return;                 // 初始化那次不用动布局
+    syncFsView();
+  }
+  /* 全屏进出只走一条路：更新按钮态 + 锁纹理 + 把所有视口相关的活交给统一调度跑一趟。
+     以前这里是两层补丁叠着：syncFs 自己排一趟（立即一次 + 520ms 再一次），
+     fsKick 再排 6 趟（每趟还 void offsetWidth 强行重排一次，且调的 bgLockTexture 根本没定义），
+     refit 又排 4 趟。一次进出全屏因此要跑十几趟布局和 4 次带仓画布重绘 —— 车机上就是黑好几秒。 */
+  function syncFsView(){
     fsLockTexture();
-    // 布局（只写 CSS 变量，很轻）在新尺寸落定后的下一帧做
-    requestAnimationFrame(function(){
-      requestAnimationFrame(function(){ try { layout(); } catch (e){} });
+    window.__vpSoon('0prep', function(){ _rowH = 0; });
+    window.__vpSoon('2layout', function(){ try { layout(); } catch (e){} });
+    window.__vpSoon('3rows', function(){
+      if (shelfList.length){ renderWindowResize(); }
     });
-    // 重铺虚拟列表是重活：等表面重建/贴图稳定后再做一次
-    clearTimeout(fsRelayoutT);
-    fsRelayoutT = setTimeout(function(){
-      try { layout(); } catch (e){}
-      try { renderWindow(true); } catch (e){}
-    }, 520);
+    /* 铭牌求解、盒子落位、封面预热都要「先读排版再写样式」，每件换来一趟整页重排。
+       全屏这一趟只做尺寸必须马上对的三件（舞台/唱盘/磁带窗口），
+       这三件挪到 380ms 之后——那时候渲染表面已经稳了，黑屏窗口里不再背它们。 */
+    if (window.__tpRefit){ try { window.__tpRefit(380); } catch (e){} }
+    /* 兜底一次：还在黑就整趟补一次 */
+    clearTimeout(fsSafeT);
+    fsSafeT = setTimeout(function(){ if (stillDark()) fsFixOnce(); }, 520);
+  }
+  function fsFixOnce(){
+    try { layout(); } catch (e){}
+    try { if (shelfList.length){ winStart = winEnd = -1; renderWindow(true); } } catch (e){}
+    try { if (window.__tpPaint) window.__tpPaint(); } catch (e){}
   }
   function toggleFs(){
     try{
@@ -5811,28 +5902,6 @@ function seekByTap(e){
     }catch(e){}
   }
   fsToggle = toggleFs;
-  /* 全屏切换在 iPad 上偶尔会留下“整屏黑、再也不亮”的死画面：
-     尺寸落定后连做几次重排，再强行抖一帧让 WebKit 重建图层；
-     万一首页面还是整块不在视口里，就再补一次 layout */
-  function fsNudge(){
-    try{
-      const b = document.body;
-      b.style.setProperty('--fs-nudge', '0.999');
-      void b.offsetWidth;
-      b.style.removeProperty('--fs-nudge');
-      bgLockTexture();
-    }catch(e){}
-    try { layout(); } catch (e){}
-    try { renderWindow(true); } catch (e){}
-  }
-  function fsKick(){
-    [0, 120, 320, 700, 1200, 2000].forEach(function(d, i){
-      setTimeout(function(){
-        fsNudge();
-        if (i >= 3 && stillDark()) fsNudge();
-      }, d);
-    });
-  }
   /* 整页都在视口外 / 尺寸为 0 = 黑屏，别等人来点 */
   function stillDark(){
     if (!document.fullscreenElement) return false;
@@ -5841,13 +5910,16 @@ function seekByTap(e){
     const r = st.getBoundingClientRect();
     return r.width < 40 || r.height < 40 || r.right <= 0 || r.bottom <= 0 || r.top >= innerHeight;
   }
-  document.addEventListener('fullscreenchange', function(){ fsKick(); });
-  document.addEventListener('webkitfullscreenchange', function(){ fsKick(); });
-  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') fsNudge(); });
+  /* 按钮态和版面都走 syncFs(true)：icon 是从这里翻的，别再各挂一条 */
+  document.addEventListener('fullscreenchange', function(){ syncFs(true); });
+  document.addEventListener('webkitfullscreenchange', function(){ syncFs(true); });
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState !== 'visible') return;
+    window.__vpSoon('2layout', function(){ try { layout(); } catch (e){} });
+    if (window.__tpRefit){ try { window.__tpRefit(); } catch (e){} }
+  });
   if (fsBtn){
     fsBtn.addEventListener('click', toggleFs);
-    document.addEventListener('fullscreenchange', function(){ syncFs(true); });
-    document.addEventListener('webkitfullscreenchange', function(){ syncFs(true); });
     syncFs(false);
     if (!document.fullscreenEnabled) fsBtn.style.display = 'none';   // 车机 WebView 不支持，藏掉免得点了没反应
   }
@@ -6741,10 +6813,46 @@ function drawMechanism(ctx, w, h) {
   ctx.restore();
 }
 
+/* 带仓画布几何：#bayCv 是 .cd-well 的 100%×100%，尺寸只随版面/主题/窗口变，不跟每帧动画变。
+   以前 fit() 每帧 getBoundingClientRect —— 只要前面有人写过样式（frame 里那堆 syncBadge /
+   placePut / 文本改写），这一次读就强制整页排版（几百行磁带），播放时每帧一次，
+   切全屏时又叠在重建渲染表面的那一帧上，车机上就是黑好几秒。
+   改成 ResizeObserver 维护尺寸（回调在排版之后来，不强制重排），画的时候直接读缓存；
+   命中测试用的绝对坐标改成「相对画布」存，点的时候才算一次 —— 那是人手指的动作，不占动画预算。 */
+const bayGeo = { w: 1, h: 1, ok: 0 };
+let bayRO = null;
+function bayMeasure(cv){
+  const r = cv.getBoundingClientRect();
+  bayGeo.w = Math.max(1, Math.round(r.width));
+  bayGeo.h = Math.max(1, Math.round(r.height));
+  bayGeo.ok = 1;
+  return bayGeo;
+}
+function bindBayRO(cv){
+  if (bayRO || typeof ResizeObserver === 'undefined' || !cv) return;
+  try {
+    bayRO = new ResizeObserver(function (es) {
+      for (let i = 0; i < es.length; i++){
+        const b = es[i].contentRect;
+        if (!b || !b.width || !b.height) continue;
+        bayGeo.w = Math.max(1, Math.round(b.width));
+        bayGeo.h = Math.max(1, Math.round(b.height));
+        bayGeo.ok = 1;
+      }
+    });
+    bayRO.observe(cv);
+  } catch (e) { bayRO = null; }
+}
+function bayRect(cv){
+  bindBayRO(cv);
+  return bayGeo.ok ? bayGeo : bayMeasure(cv);
+}
+window.__bayGeoDrop = function (){};   /* 尺寸由 RO 自己跟，不再需要手动作废 */
+
 function fit(cv) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const r = cv.getBoundingClientRect();
-  const W = Math.max(1, Math.round(r.width)), H = Math.max(1, Math.round(r.height));
+  const r = bayRect(cv);
+  const W = r.w, H = r.h;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) {
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   }
@@ -6872,8 +6980,9 @@ function fit(cv) {
     let bw = w * .84, bh = bw * .638;
     if (bh > h * .86) { bh = h * .86; bw = bh / .638; }
     const bx = (w - bw) / 2, by = (h - bh) / 2, rad = bw * .022;
-    const cr0 = cv.getBoundingClientRect();
-    tp.bayHit = { l: cr0.left + bx, t: cr0.top + by, r: cr0.left + bx + bw, b: cr0.top + by + bh };
+    /* 命中框存相对画布的坐标：绝对坐标要用 getBoundingClientRect，
+       画的时候算它就是强制排版。等真点了再换算。 */
+    tp.bayHit = { x: bx, y: by, w: bw, h: bh };
 
     /* 带仓凹槽：贴着磁带一圈等宽的窄边（空仓时整块凹槽也常显） */
     const gap = Math.max(6, bw * .024);
@@ -7119,27 +7228,127 @@ function fit(cv) {
 
   /* 侧封/盒体颜色：直接从封面图上取平均色，别再拿服务端那套 tint 顶。
      用户看到的就是「盒身颜色和封面颜色两套」，这里统一到封面自己的颜色 */
-  function coverTint(a, cb) {
-    if (!a || !a.id) return;
-    if (a.__tpTint) { cb(a.__tpTint); return; }
+  /* 封面平均色：算法原样不动（8×8 取均值、跳过透明像素），只把「算」这一步搬出主线程。
+     原来每张都在主线程 canvas.getImageData —— 8×8 也要 GPU→CPU 读回，一次约 29ms；
+     磁带架一铺 670 行就是 670 次读回，实测主线程被占 91.9%、总阻塞 12.3s/4s，
+     全屏切换正撞在这段里，看起来就是“黑好几秒”。
+     现在：Worker 里取色（OffscreenCanvas），主线程只收一个 hex，并落 localStorage，
+     第二次打开直接命中，不再为整架磁带重复取色。 */
+  var TINT_LS = 'tp.tint1.';
+  var tintMem = Object.create(null);     // id|ct -> hex
+  var tintCbs = Object.create(null);     // id|ct -> [cb,...]
+  var tintTry = Object.create(null);     // 同一张只试一次
+  var tintW = null;                      // Worker / false(降级) / null(未建)
+  var tintQueue = [], tintBusy = 0;
+  var TINT_WORKER_SRC = [
+    'var q=[],busy=0,MAX=3;',
+    'function pump(){ while(busy<MAX && q.length){ var j=q.shift(); busy++; run(j).then(function(){ busy--; pump(); }); } }',
+    'async function run(j){ var hex="";',
+    '  try{',
+    '    var res=await fetch(j.url,{credentials:"same-origin"});',
+    '    var blob=await res.blob();',
+    '    var bmp=await createImageBitmap(blob);',
+    '    var c=new OffscreenCanvas(8,8), g=c.getContext("2d");',
+    '    g.drawImage(bmp,0,0,8,8);',
+    '    var d=g.getImageData(0,0,8,8).data, r=0, gg=0, b=0, n=0;',
+    '    for(var i=0;i<d.length;i+=4){ if(d[i+3]<40) continue; r+=d[i]; gg+=d[i+1]; b+=d[i+2]; n++; }',
+    '    if(n){ var h=function(v){ return ("0"+Math.round(v/n).toString(16)).slice(-2); }; hex="#" + h(r) + h(gg) + h(b); }',
+    '    if(bmp.close) bmp.close();',
+    '  }catch(e){ hex=""; }',
+    '  postMessage({ k:j.k, hex:hex });',
+    '}',
+    'onmessage=function(e){',
+    '  if(e.data && e.data.k==="__probe"){ postMessage({ k:"__probe", hex: (typeof OffscreenCanvas!=="undefined" && typeof createImageBitmap!=="undefined") ? "ok" : "" }); return; }',
+    '  q.push(e.data); pump();',
+    '};'
+  ].join('\n');
+  function tintKeyOf(a){ return a.id + '|' + (a.ct || 0); }
+  function tintLSGet(k){ try { return localStorage.getItem(TINT_LS + k) || ''; } catch (e){ return ''; } }
+  function tintLSPut(k, v){ try { localStorage.setItem(TINT_LS + k, v); } catch (e){} }
+  function tintDone(k, hex){
+    if (hex){
+      tintMem[k] = hex;
+      tintLSPut(k, hex);
+      const id = k.split('|')[0];
+      const al = byId[id];
+      if (al) al.__tpTint = hex;
+    }
+    const list = tintCbs[k]; delete tintCbs[k];
+    if (list) list.forEach(function (fn) { try { fn(hex); } catch (e){} });
+  }
+  function tintWorker(){
+    if (tintW !== null) return tintW;
+    try {
+      if (!window.Worker || !window.OffscreenCanvas) { tintW = false; return tintW; }
+      const url = URL.createObjectURL(new Blob([TINT_WORKER_SRC], { type: 'text/javascript' }));
+      const w = new Worker(url);
+      URL.revokeObjectURL(url);
+      w.onmessage = function (e) {
+        const d = e.data || {};
+        if (d.k === '__probe'){                 /* Worker 建起来了，但老内核没有 OffscreenCanvas → 降级 */
+          if (d.hex !== 'ok') tintW = false;
+          return;
+        }
+        if (d.k) tintDone(d.k, d.hex || '');
+      };
+      w.onerror = function () { tintW = false; };
+      w.postMessage({ k: '__probe' });
+      tintW = w;
+    } catch (err) { tintW = false; }
+    return tintW;
+  }
+  /* 没有 Worker 的老内核：回主线程算，但排队 + 每帧只做一张，不再一口气 670 张 */
+  function tintFallback(k, url){
     const im = new Image();
+    im.decoding = 'async';
     im.onload = function () {
+      let hex = '';
       try {
         const c = document.createElement('canvas'); c.width = c.height = 8;
-        const g = c.getContext('2d'); g.drawImage(im, 0, 0, 8, 8);
+        const g = c.getContext('2d', { willReadFrequently: true });
+        g.drawImage(im, 0, 0, 8, 8);
         const d = g.getImageData(0, 0, 8, 8).data;
         let r = 0, gg = 0, b = 0, n = 0;
         for (let i = 0; i < d.length; i += 4) {
           if (d[i + 3] < 40) continue;
           r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++;
         }
-        if (!n) return;
-        const hx = function (v) { const s = ('0' + Math.round(v / n).toString(16)).slice(-2); return s; };
-        a.__tpTint = '#' + hx(r) + hx(gg) + hx(b);
-        cb(a.__tpTint);
-      } catch (e) {}
+        if (n) {
+          const hx = function (v) { return ('0' + Math.round(v / n).toString(16)).slice(-2); };
+          hex = '#' + hx(r) + hx(gg) + hx(b);
+        }
+      } catch (e) { hex = ''; }
+      tintDone(k, hex);
     };
-    im.src = '/api/thumb/' + a.id + '?ct=' + (a.ct || 0);
+    im.onerror = function () { tintDone(k, ''); };
+    im.src = url;
+  }
+  function tintNext(){
+    if (tintBusy || !tintQueue.length) return;
+    const job = tintQueue.shift();
+    tintBusy = 1;
+    if (tintWorker()){
+      tintW.postMessage(job);
+      tintBusy = 0;                       /* Worker 自己限并发，主线程这边不等 */
+      if (tintQueue.length) tintNext();
+      return;
+    }
+    tintFallback(job.k, job.url);
+    tintBusy = 0;
+    if (tintQueue.length) requestAnimationFrame(tintNext);   /* 降级路径：每帧一张 */
+  }
+  function coverTint(a, cb) {
+    if (!a || !a.id) return;
+    if (a.__tpTint) { if (cb) cb(a.__tpTint); return; }
+    const k = tintKeyOf(a);
+    let hit = tintMem[k] || tintLSGet(k);
+    if (hit) { a.__tpTint = hit; tintMem[k] = hit; if (cb) cb(hit); return; }
+    if (cb) (tintCbs[k] = tintCbs[k] || []).push(cb);
+    if (tintTry[k]) return;               /* 取不到也别反复重试 */
+    tintTry[k] = 1;
+    /* Worker 的 base URL 是 blob:，相对路径会解析失败，这里给绝对地址 */
+    tintQueue.push({ k: k, url: location.origin + '/api/thumb/' + a.id + '?ct=' + (a.ct || 0) });
+    tintNext();
   }
 
   /* ---------- 盒身色唯一入口（固化）：封面盒身 pop 与封底/侧封 jpack 永远同一条色 ----------
@@ -7497,8 +7706,16 @@ function hookNowArt() {
       if (!well) return;
       /* 只在装带时、且真的点在磁带本体上才吃掉：空仓和面板空白的点击要留给收放架子 */
       if (!tp.mounted) return;
-      const h = tp.bayHit;
-      if (h && !(e.clientX >= h.l - 8 && e.clientX <= h.r + 8 && e.clientY >= h.t - 8 && e.clientY <= h.b + 8)) return;
+      const h0 = tp.bayHit;
+      if (h0){
+        /* 相对坐标 + 当下画布位置：只有手指真落在带仓时才量一次 */
+        const cvB = $('#bayCv');
+        const rb = cvB ? cvB.getBoundingClientRect() : null;
+        if (rb){
+          const l = rb.left + h0.x, t = rb.top + h0.y, r = l + h0.w, b = t + h0.h;
+          if (!(e.clientX >= l - 8 && e.clientX <= r + 8 && e.clientY >= t - 8 && e.clientY <= b + 8)) return;
+        }
+      }
       e.stopPropagation();
       if (e.type === 'click') e.preventDefault();
     };
@@ -7792,6 +8009,7 @@ function hookNowArt() {
       var deck = document.getElementById('deck'), mark = document.querySelector('.cd-mark'),
           well = document.querySelector('.cd-well'), now = document.querySelector('.now');
       if (!deck || !mark || !well || !now) return;
+      tp.markAt = performance.now();     /* RO 用这个时刻认领「自己写的」，别自激 */
       var wr = well.getBoundingClientRect(), mr = mark.getBoundingClientRect(), nr = now.getBoundingClientRect();
       var G0 = nr.top - wr.bottom; if (G0 <= 0) return;
       var mh = mr.height, padT = parseFloat(getComputedStyle(mark).paddingTop) || 0,
@@ -7851,11 +8069,20 @@ function hookNowArt() {
         if (lh > 0 && rh > lh) rev.style.fontSize = (parseFloat(getComputedStyle(rev).fontSize) * lh / rh) + 'px';
       }
     }
-    window.addEventListener('resize', placeMark);
+    /* 视口变化的 placeMark 统一由磁带层的 refit 登记（全屏时还要挪到表面稳定之后），
+       这里不再重复挂一个 resize 监听，否则全屏那一趟会被它提前拉回 100ms。 */
     setTimeout(function(){
       placeMark();
       try {
-        var ro = new ResizeObserver(function(){ placeMark(); });
+        /* RO 一动就直接 placeMark 的话会自激：placeMark 改 well 的上下 margin（well 是
+           flex 可压缩的，一改 margin 尺寸就变）、改 mark 的 gap，RO 立刻再回调，
+           一次换尺寸能连跑十几趟，每趟还 void offsetHeight 强制排版三次。
+           这里把「自己刚写出来的尺寸变化」认出来丢掉（150ms 窗口足够覆盖一趟），
+           外部真的变了（主题/字号/播放区高度）照样会再叫人。 */
+        var ro = new ResizeObserver(function(){
+          if (performance.now() - (tp.markAt || 0) < 150) return;
+          window.__vpSoon('4mark', placeMark);
+        });
         ro.observe(document.querySelector('.cd-well'));
         ro.observe(document.querySelector('.cd-mark'));
       } catch (e) {}
@@ -7892,7 +8119,7 @@ function hookNowArt() {
 
     if (playing) {
       const cv = $('#bayCv');
-      const bwpx = cv ? cv.getBoundingClientRect().width * .84 : 400;
+      const bwpx = cv ? bayRect(cv).w * .84 : 400;
       const v = bwpx * SURFACE_RATE;
       const prog = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
       const progAll = (tp.dir < 0) ? (1 - prog) : prog;
@@ -8033,8 +8260,11 @@ function hookNowArt() {
 
   /* ---------- 上/下一首：按住快进快退 + 快速转带 ---------- */
   const SK = { dir: 0, on: false, base: 0, t0: 0, suppress: false, timer: null };
+  let mediaRef = null;
   function mediaEl() {
-    return document.querySelector('video') || document.querySelector('audio');
+    if (mediaRef && mediaRef.isConnected) return mediaRef;
+    mediaRef = document.querySelector('video') || document.querySelector('audio');
+    return mediaRef;
   }
   function scrubTo(v) {
     const m = mediaEl();
@@ -8709,7 +8939,7 @@ function hookNowArt() {
       e.stopPropagation();
       if (PK.open) closePack(); else openPack();
     }, true);
-    window.addEventListener('resize', function () { if (PK.open) placePack(); });
+    /* 同上：歌单盒的落位由 refit 登记，避免和它各跑一遍 */
   }
 
   /* ---------- 空仓按 PLAY：直接抽一盒落带，不让封皮闪一下 ---------- */
@@ -9100,24 +9330,32 @@ function hookNowArt() {
     }
   }
 
-  /* 全屏进出 / 旋屏后视口变了：盒子的落盒尺寸与带仓贴图都得按新尺寸重算，
-     否则整块内容还按旧视口摆，屏幕上就是一片空黑 */
-  function refit(){
-    tp.caseW = 0; tp.caseH = 0; tp.caseY = null;
-    tp.baySig = ''; tp.packSig = ''; tp.putTick = 0;
-    [0, 200, 600, 1200].forEach(function(d){
-      setTimeout(function(){
-        try { placeCase(); } catch (e){}
-        try { placePack(); } catch (e){}
-        tp.baySig = '';
-        try { paintBay(); } catch (e){}
-      }, d);
+  /* 全屏进出 / 旋屏后视口变了：盒子的落盒尺寸与带仓贴图都得按新尺寸重算。
+     以前是 4 轮定时（0/200/600/1200ms）各跑一遍 placeCase+placePack+paintBay，
+     和 vinyl 层那几个 resize 监听叠在一起，一次切换要重绘 4 次带仓画布。
+     现在只登记任务，和其余视口活合成一趟。 */
+  function refit(deferMs){
+    const d = deferMs == null ? 100 : deferMs;
+    /* 尺寸一变，带仓画布必须马上按新尺寸重画，不然就是旧画布被拉伸一帧 */
+    window.__vpSoon('0tp', function(){
+      tp.caseW = 0; tp.caseH = 0; tp.caseY = null;
+      tp.baySig = ''; tp.packSig = ''; tp.putTick = 0;
     });
+    window.__vpSoon('4paint', function(){ try { paintBay(); } catch (e){} });
+    /* 下面这三件都要「先读排版再写样式」，每件都换来一趟整页重排。
+       全屏进出时（deferMs=380）挪到渲染表面稳定之后再做，黑屏窗口里不背它们。 */
+    window.__vpSoon('8mark', function(){ try { placeMark(); } catch (e){} }, d);
+    window.__vpSoon('8case', function(){
+      try { placeCase(); } catch (e){}
+      try { paintBay(); } catch (e){}
+    }, d);
+    window.__vpSoon('8pack', function(){ if (PK.open) { try { placePack(); } catch (e){} } }, d);
   }
-  ['fullscreenchange', 'webkitfullscreenchange'].forEach(function(ev){
-    document.addEventListener(ev, refit);
-  });
-  window.addEventListener('resize', refit);
+  window.__tpRefit = refit;              /* 给 vinyl 那层的全屏入口调用 */
+  window.__tpPaint = function(){         /* 黑屏兜底：只补一次带仓画布 */
+    try { paintBay(); } catch (e){}
+  };
+  window.addEventListener('resize', function(){ refit(); });
 
   /* 调试句柄：卷径/侧别/反转快照（验收反转不跳厚度用） */
   window.__tpRadii = function () {
