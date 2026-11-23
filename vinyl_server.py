@@ -2821,19 +2821,29 @@ def _raise_fd_limit():
 
 
 def _single_instance_lock():
-    # flock 由内核在进程死亡时自动释放，无陈旧锁问题；持住文件对象防止 GC 闭锁
+    # flock 由内核在进程死亡时自动释放，无陈旧锁问题；持住文件对象防止 GC 闭锁。
+    # v0.83.1：锁跟随数据目录（DATA_ROOT），不再固定 ~/.warmplayer —— 不同目录的副本
+    # （例如两份对照版本）各有各的锁，可以同时跑，端口各自自动避让；同一数据目录仍只
+    # 允许一份实例，防止重复扫描 / 抢 cache、settings、转码临时目录。
     import fcntl
-    d = os.path.expanduser("~/.warmplayer")
-    os.makedirs(d, exist_ok=True)
-    fh = open(os.path.join(d, "server.lock"), "w")
+    d = DATA_ROOT
+    lock_path = os.path.join(d, "server.lock")
+    try:
+        os.makedirs(d, exist_ok=True)
+        fh = open(lock_path, "w")
+    except OSError as e:
+        # 只读挂载 / 无权限时不硬失败，退化为不加锁（单机自用场景可接受）
+        print("警告：数据目录不可写，跳过单实例锁（%s）" % e)
+        return
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        print("已有 WarmPlayer 服务在运行（单实例锁），本实例退出。")
+        print("该数据目录已有 WarmPlayer 服务在运行（锁：%s），本实例退出。" % lock_path)
         sys.exit(0)
     fh.write(str(os.getpid()))
     fh.flush()
     globals()["LOCK_FH"] = fh
+    globals()["LOCK_PATH"] = lock_path
 
 
 def main():
