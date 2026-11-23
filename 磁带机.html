@@ -1622,6 +1622,9 @@ body[data-theme="paper"] .cd-mark .cd-rev{color:rgba(30,26,20,.62)}
 
 /* ============ 磁带盒亮相（复用黑胶封套的弹入/翻转，只换皮） ============ */
 #platter,.rim,#spindle,#record,#pop3d .peek,.teac,#armSvg,.cv-put,.runin,#trackLines{visibility:hidden!important;pointer-events:none!important}
+/* 看不见的黑胶盘别再转了：播放时 .spinning 会让 .disc 的 CSS 旋转动画一直跑，
+   676×676 的一层每帧都要重栅格化，车机上这就是最主要的那笔冤枉开销 */
+#record,#record .disc{animation:none!important;will-change:auto!important}
 /* 黑胶架整列在磁带页是隐藏的，但里面那 20 行还在，抽盒时基座会把其中一行
    当“飞出来的封套”演一遍——用户截图里顶上那条黄色横条就是它。整列按住，
    我们照旧借 row.click() 拿 state.sleeve，动画都在看不见的地方跑 */
@@ -6463,6 +6466,119 @@ function tapeDolby(ctx, cx, cy, w, ink) {
   } catch (e) {}
 }
 
+/* 磁带走带拉线：卷盘缠绕层外圆 → 导带轮外圆的外公切线。
+   winOnly = 只画「窗口里」那一截（播放时每帧要跟着卷径重画的就是这一截）；
+   纸下沿以外露出来的那截随卷径变化极慢，留在静态层里，重建时更新。 */
+function paintTapeLead(ctx, bx, by, bw, bh, rad, reels, winOnly) {
+  if (!reels || !reels.L || !reels.R) return;
+  const cx0 = bx + bw * .030, cy0 = by + bh * .742, cw0 = bw * .940, ch0 = bh * .258;
+  const win2 = tapeWin(bx, by, bw, bh);
+  const winB = win2.y + win2.h;
+  const wx2 = win2.x, wy2 = win2.y;
+  const ww2 = win2.w, wh2 = win2.h, wr2 = win2.r;
+  /* 贴纸模式：窗口到纸下沿之间藏在纸后面；印刷模式没有纸，这一段要连着画 */
+  const labB = (tp.tapeSkin === 'sticker') ? by + bh * (.088 + .664) : winB;
+  const rr2 = bw * .031;
+  const ryL = cy0 + ch0 * .615;
+  const rXL = cx0 + cw0 * .085, rXR = cx0 + cw0 * .915;
+  const tanPts = function (c, rx, ry, pickLeft) {
+    const dx = rx - c.cx, dy = ry - c.cy, d = Math.hypot(dx, dy) || 1;
+    const th = Math.atan2(dy, dx);
+    const beta = Math.acos(Math.max(-1, Math.min(1, (c.r - rr2) / d)));
+    const cand = [th + beta, th - beta].map(function (a) {
+      return {
+        p0: { x: c.cx + c.r * Math.cos(a), y: c.cy + c.r * Math.sin(a) },
+        p1: { x: rx + rr2 * Math.cos(a), y: ry + rr2 * Math.sin(a) }
+      };
+    });
+    /* 取靠外侧的那条（左轮取更靠左、右轮取更靠右的切点） */
+    cand.sort(function (m, n) { return pickLeft ? m.p1.x - n.p1.x : n.p1.x - m.p1.x; });
+    return cand[0];
+  };
+  const LEAD = 'rgba(62,47,34,.95)';   /* 带基深棕 + 一点光泽感，黑壳上可见 */
+  /* 卷盘被观察窗裁切，切点却按整圆算 → 切点可能在窗外“空气”里。
+     把线段起点推进到窗口矩形内第一个可见点，贴纸/直印统一受益 */
+  const clampToWin = function (a, b) {
+    const inside = function (q) { return q.x >= wx2 && q.x <= wx2 + ww2 && q.y >= wy2 && q.y <= wy2 + wh2; };
+    if (inside(a)) return a;
+    for (let s = 1; s <= 24; s++) {
+      const k = s / 24;
+      const q = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+      if (inside(q)) return q;
+    }
+    return a;
+  };
+  const stroke = function (a, b, lw, col) {
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = 'butt'; ctx.stroke();
+  };
+  [[reels.L, rXL, true], [reels.R, rXR, false]].forEach(function (pair) {
+    const c = pair[0], rx = pair[1], pickLeft = pair[2];
+    const t = tanPts(c, rx, ryL, pickLeft);
+    /* 贴纸皮肤：纸是贴在壳面上的，拉线在纸下面——所以只在「窗口里」和
+       「纸下沿以外露出来的壳带」这两处可见，纸上不许透出来（以前整条压在最上层，
+       就出现用户说的“贴纸被拉线透出”）。印刷皮肤没有纸，整条照旧 */
+    /* 贴纸：卷盘被开孔裁切，切点可能在孔外“空气”里→推进到孔内第一个可见点。
+       直印：整块透明壳、卷盘不被裁，切点就在卷外圆上，整条切线照实画 */
+    const p0c = (tp.tapeSkin === 'sticker') ? clampToWin(t.p0, t.p1) : t.p0;
+    const paintLead = function () { stroke(p0c, t.p1, 1, LEAD); };
+    if (tp.tapeSkin === 'sticker') {
+      ctx.save();
+      rr(ctx, wx2, wy2, ww2, wh2, wr2); ctx.clip();
+      paintLead();
+      ctx.restore();
+      if (!winOnly) {
+        ctx.save();
+        rr(ctx, bx, labB, bw, (by + bh) - labB, 0); ctx.clip();
+        paintLead();
+        ctx.restore();
+      }
+    } else if (!winOnly) {
+      ctx.save();
+      rr(ctx, bx, by, bw, bh, rad);
+      ctx.clip();
+      paintLead();
+      ctx.restore();
+    }
+  });
+  if (winOnly) return;
+  /* ③ 底部横向拉线：两颗导带轮的下切点连成一条（贴纸皮肤同样只露纸下沿以外那一段） */
+  const yB = ryL + rr2;
+  ctx.save();
+  if (tp.tapeSkin === 'sticker') { rr(ctx, bx, labB, bw, (by + bh) - labB, 0); }
+  else { rr(ctx, bx, by, bw, bh, rad); }
+  ctx.clip();
+  stroke({ x: rXL, y: yB }, { x: rXR, y: yB }, 1, LEAD);
+  ctx.restore();
+}
+
+/* 观察窗背光：窗口里那圈暖光 + 窗沿一圈很淡的外溢。
+   winOnly = 只画窗口内那部分（播放时每帧重画窗口时要跟着补上这一层）。 */
+function paintTapeLamp(ctx, bx, by, bw, bh, rad, win, isPrint, winOnly) {
+  if (!(tp.lamp > .02)) return;
+  const mx = bx + bw * .5, my = win.cy;
+  const rr0 = isPrint ? Math.max(bw * .30, bh * .40) : Math.max(win.w * .24, win.h * .46);
+  ctx.save();
+  if (isPrint) rr(ctx, bx, by, bw, bh, rad); else rr(ctx, win.x, win.y, win.w, win.h, win.r);
+  ctx.clip();
+  const rg = ctx.createRadialGradient(mx, my, rr0 * .20, mx, my, rr0);
+  rg.addColorStop(0, 'rgba(255,206,158,' + (.075 * tp.lamp) + ')');
+  rg.addColorStop(.55, 'rgba(255,192,140,' + (.030 * tp.lamp) + ')');
+  rg.addColorStop(1, 'rgba(255,186,132,0)');
+  ctx.fillStyle = rg;
+  if (isPrint) ctx.fillRect(bx, by, bw, bh); else ctx.fillRect(win.x, win.y, win.w, win.h);
+  ctx.restore();
+  /* 窗口边缘一圈很淡的外溢：光像是从洞里漏出来的 */
+  ctx.save();
+  if (winOnly) rr(ctx, win.x, win.y, win.w, win.h, win.r); else rr(ctx, bx, by, bw, bh, rad);
+  ctx.clip();
+  ctx.shadowColor = 'rgba(255,182,120,' + (.10 * tp.lamp) + ')';
+  ctx.shadowBlur = bw * .028;
+  ctx.fillStyle = 'rgba(255,182,120,' + (.012 * tp.lamp) + ')';
+  rr(ctx, win.x, win.y, win.w, win.h, win.r); ctx.fill();
+  ctx.restore();
+}
+
 function paintTapeMech(ctx, bx, by, bw, bh, rad, reels) {
   /* 下壳透窗：参考透明壳的梯形凸台——上沿略收、下沿略张，四周起一条亮边 */
   const cx0 = bx + bw * .030, cy0 = by + bh * .742, cw0 = bw * .940, ch0 = bh * .258;
@@ -6528,90 +6644,8 @@ function paintTapeMech(ctx, bx, by, bw, bh, rad, reels) {
   ctx.strokeStyle = 'rgba(230,226,214,.22)';
   ctx.lineWidth = Math.max(.5, bw * .0013); ctx.stroke();
 
-  /* 磁带拉线：卷盘缠绕层外圆 → 导带轮外圆的外公切线
-     线宽 1px；压在贴纸下面的那一段不画（靠两层裁窗实现） */
-  if (reels && reels.L && reels.R) {
-    const win2 = tapeWin(bx, by, bw, bh);
-    const winB = win2.y + win2.h;
-    const wx2 = win2.x, wy2 = win2.y;
-    const ww2 = win2.w, wh2 = win2.h, wr2 = win2.r;
-    /* 贴纸模式：窗口到纸下沿之间藏在纸后面；印刷模式没有纸，这一段要连着画 */
-    const labB = (tp.tapeSkin === 'sticker') ? by + bh * (.088 + .664) : winB;
-    const rr2 = bw * .031;
-    const ryL = cy0 + ch0 * .615;
-    const rXL = cx0 + cw0 * .085, rXR = cx0 + cw0 * .915;
-    const tanPts = function (c, rx, ry, pickLeft) {
-      const dx = rx - c.cx, dy = ry - c.cy, d = Math.hypot(dx, dy) || 1;
-      const th = Math.atan2(dy, dx);
-      const beta = Math.acos(Math.max(-1, Math.min(1, (c.r - rr2) / d)));
-      const cand = [th + beta, th - beta].map(function (a) {
-        return {
-          p0: { x: c.cx + c.r * Math.cos(a), y: c.cy + c.r * Math.sin(a) },
-          p1: { x: rx + rr2 * Math.cos(a), y: ry + rr2 * Math.sin(a) }
-        };
-      });
-      /* 取靠外侧的那条（左轮取更靠左、右轮取更靠右的切点） */
-      cand.sort(function (m, n) { return pickLeft ? m.p1.x - n.p1.x : n.p1.x - m.p1.x; });
-      return cand[0];
-    };
-    const LEAD = 'rgba(62,47,34,.95)';   /* 带基深棕 + 一点光泽感，黑壳上可见 */
-    /* 卷盘被观察窗裁切，切点却按整圆算 → 切点可能在窗外“空气”里。
-       把线段起点推进到窗口矩形内第一个可见点，贴纸/直印统一受益 */
-    const clampToWin = function (a, b) {
-      const inside = function (q) { return q.x >= wx2 && q.x <= wx2 + ww2 && q.y >= wy2 && q.y <= wy2 + wh2; };
-      if (inside(a)) return a;
-      for (let s = 1; s <= 24; s++) {
-        const k = s / 24;
-        const q = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
-        if (inside(q)) return q;
-      }
-      return a;
-    };
-    const stroke = function (a, b, lw, col) {
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = 'butt'; ctx.stroke();
-    };
-    [[reels.L, rXL, true], [reels.R, rXR, false]].forEach(function (pair) {
-      const c = pair[0], rx = pair[1], pickLeft = pair[2];
-      const t = tanPts(c, rx, ryL, pickLeft);
-      const yMax = Math.max(t.p0.y, t.p1.y);
-      const at = function (yy) {
-        const k = (t.p1.y - t.p0.y) === 0 ? 0 : (yy - t.p0.y) / (t.p1.y - t.p0.y);
-        return { x: t.p0.x + (t.p1.x - t.p0.x) * k, y: yy };
-      };
-      /* 贴纸皮肤：纸是贴在壳面上的，拉线在纸下面——所以只在「窗口里」和
-         「纸下沿以外露出来的壳带」这两处可见，纸上不许透出来（以前整条压在最上层，
-         就出现用户说的“贴纸被拉线透出”）。印刷皮肤没有纸，整条照旧 */
-      /* 贴纸：卷盘被开孔裁切，切点可能在孔外“空气”里→推进到孔内第一个可见点。
-       直印：整块透明壳、卷盘不被裁，切点就在卷外圆上，整条切线照实画 */
-    const p0c = (tp.tapeSkin === 'sticker') ? clampToWin(t.p0, t.p1) : t.p0;
-      const paintLead = function () { stroke(p0c, t.p1, 1, LEAD); };
-      if (tp.tapeSkin === 'sticker') {
-        ctx.save();
-        rr(ctx, wx2, wy2, ww2, wh2, wr2); ctx.clip();
-        paintLead();
-        ctx.restore();
-        ctx.save();
-        rr(ctx, bx, labB, bw, (by + bh) - labB, 0); ctx.clip();
-        paintLead();
-        ctx.restore();
-      } else {
-        ctx.save();
-        rr(ctx, bx, by, bw, bh, rad);
-        ctx.clip();
-        paintLead();
-        ctx.restore();
-      }
-    });
-    /* ③ 底部横向拉线：两颗导带轮的下切点连成一条（贴纸皮肤同样只露纸下沿以外那一段） */
-    const yB = ryL + rr2;
-    ctx.save();
-    if (tp.tapeSkin === 'sticker') { rr(ctx, bx, labB, bw, (by + bh) - labB, 0); }
-    else { rr(ctx, bx, by, bw, bh, rad); }
-    ctx.clip();
-    stroke({ x: rXL, y: yB }, { x: rXR, y: yB }, 1, LEAD);
-    ctx.restore();
-  }
+  /* 走带拉线（抽成独立函数：窗口里那一截播放时要每帧重画） */
+  paintTapeLead(ctx, bx, by, bw, bh, rad, reels, false);
 
   /* 左右两颗米白导带轮：贴到螺丝边角，尺寸收小，环谷做细 */
   [[.085, .615], [.915, .615]].forEach(function (pair, ri) {
@@ -6973,12 +7007,38 @@ function fit(cv) {
     return acc + curSec();
   }
 
-  /* ---------- 带仓绘制 ---------- */
-  function paintBay() {
+  /* ---------- 带仓绘制 ----------
+     播放时每帧会变的只有观察窗里的两个卷轴、窗口上那道压暗和背光。
+     磁带壳、贴纸底图、印刷字、机芯、螺丝、外壳这些只在换带/换面/换肤/换尺寸/灯亮灭时才变，
+     所以它们只画一次、留在画布上不擦；每帧只把「窗口」这一小块贴回底、重画卷轴。
+     以前是每帧整幅重画（90 个噪点、模糊封面、一堆渐变、阴影模糊、文字全在 60fps 里跑一遍），
+     车机上掉帧就是它。 */
+  const bayC = { key: '', tile: null, tctx: null, sx: 0, sy: 0, tw: 0, th: 0, wg: null, wgKey: '' };
+
+  /* 把「卷轴还没画上去」的窗口底拍成一张小图（设备像素 1:1），每帧贴回来 */
+  function baySnapshot(cv, win, dpr) {
+    const sx = Math.round(win.x * dpr), sy = Math.round(win.y * dpr);
+    const ex = Math.round((win.x + win.w) * dpr), ey = Math.round((win.y + win.h) * dpr);
+    const tw = Math.max(1, ex - sx), th = Math.max(1, ey - sy);
+    if (!bayC.tile || bayC.tile.width !== tw || bayC.tile.height !== th) {
+      const c = document.createElement('canvas');
+      c.width = tw; c.height = th;
+      bayC.tile = c; bayC.tctx = c.getContext('2d');
+    }
+    const t = bayC.tctx;
+    t.setTransform(1, 0, 0, 1, 0, 0);
+    t.clearRect(0, 0, tw, th);
+    t.drawImage(cv, sx, sy, tw, th, 0, 0, tw, th);
+    bayC.sx = sx; bayC.sy = sy; bayC.tw = tw; bayC.th = th;
+  }
+
+  function paintBay(force) {
+    /* 直印/彩壳：整块透明壳，卷轴会露到窗口外面，还是整幅重画更稳 */
+    if ((tp.tapeSkin || 'sticker') !== 'sticker') { paintBayFull(); return; }
     const cv = $('#bayCv');
     if (!cv) return;
     const { ctx, w, h } = fit(cv);
-    ctx.clearRect(0, 0, w, h);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     let bw = w * .84, bh = bw * .638;
     if (bh > h * .86) { bh = h * .86; bw = bh / .638; }
@@ -6988,6 +7048,109 @@ function fit(cv) {
     tp.bayHit = { x: bx, y: by, w: bw, h: bh };
 
     /* 带仓凹槽：贴着磁带一圈等宽的窄边（空仓时整块凹槽也常显） */
+    const gap = Math.max(6, bw * .024);
+    const bwx = bw + gap * 2, bhx = bh + gap * 2;
+    const bxx = bx - gap, byy = by - gap, br2 = rad + gap * .9;
+    const mounted = !!tp.mounted;
+    const win = tapeWin(bx, by, bw, bh);
+
+    /* 静态层的重建条件：只有这些量会让「磁带本体」换样 */
+    const key = [w, h, dpr, mounted ? 1 : 0, tp.album ? tp.album.id : '', tp.side,
+      (tp.jc && tp.album && tp.jc.id === tp.album.id && tp.jcImg) ? 1 : 0,
+      Math.round(tp.lamp * 12)].join('|');
+    const need = (force !== false) || bayC.key !== key;
+
+    if (need) {
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = 'rgba(0,0,0,.40)';
+      rr(ctx, bxx, byy, bwx, bhx, br2); ctx.fill();
+      if (!mounted) { bayC.key = key; bayC.tile = null; return; }
+
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,.75)';
+      ctx.shadowBlur = h * .035; ctx.shadowOffsetY = h * .010;
+      rr(ctx, bx, by, bw, bh, rad); ctx.fillStyle = '#0e0c08'; ctx.fill();
+      ctx.restore();
+      paintTapeBody(ctx, bx, by, bw, bh, rad);
+      /* 先拍下窗口底（此时卷轴还没画），后面每帧贴回来 */
+      baySnapshot(cv, win, dpr);
+
+      /* 静态层：机芯（含走带拉线/导带轮）+ 外壳 + 背光外溢 + 仓口棱线。
+         这些和窗口不重叠；窗口里被画到的部分（拉线、背光内圈）下一段会连底一起重画。 */
+      const rawP0 = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
+      const rr0 = reelDisplay(reelRadii((tp.dir < 0) ? (1 - rawP0) : rawP0, bw));
+      paintTapeMech(ctx, bx, by, bw, bh, rad,
+        { L: { cx: win.cxL, cy: win.cy, r: rr0[0] * bw }, R: { cx: win.cxR, cy: win.cy, r: rr0[1] * bw } });
+      paintShell(ctx, bx, by, bw, bh, rad);
+      paintTapeLamp(ctx, bx, by, bw, bh, rad, win, false, false);
+      paintBayRim(ctx, bxx, byy, bwx, bhx, br2, bw);
+      bayC.key = key;
+    }
+
+    /* 空仓（或底图还没拍好）：静态层画完就够了 */
+    if (!mounted || !bayC.tile) return;
+    /* 每帧：窗口这一块从底图恢复 → 卷轴 → 压暗 → 拉线 → 背光 */
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(bayC.sx, bayC.sy, bayC.tw, bayC.th);
+    ctx.drawImage(bayC.tile, 0, 0, bayC.tw, bayC.th, bayC.sx, bayC.sy, bayC.tw, bayC.th);
+    ctx.restore();
+
+    const cy = win.cy, cxL = win.cxL, cxR = win.cxR;
+    /* 走带进度平滑一下：按压翻面/跳曲时卷轴厚度不会突然跳一个量 */
+    const tNow = performance.now();
+    const dts = Math.min(.14, (tNow - (tp.pT || tNow)) / 1000);
+    tp.pT = tNow;
+    const rawP = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
+    if (tp.pLock && tNow - tp.pLock < 800) {
+      /* 翻面后的进度锁：rawP 在 seek 完成前仍是旧面值，若参与平滑会把预置进度拖回去 → 厚度先反向后复原 */
+    } else {
+      tp.pLock = 0;
+      tp.pS = (tp.pS == null) ? rawP : tp.pS + (rawP - tp.pS) * Math.min(1, dts * 6);
+      if (Math.abs(rawP - tp.pS) < .006) tp.pS = rawP;
+    }
+    tp.bw = bw;
+    /* 磁带不真翻面，只是原地倒转：厚度按「整盘位置」算（B 面 = 1-单面进度），
+       左卷始终是左卷、右卷始终是右卷，绝不镜像/互换。
+       同一盘位在 A/B 面得到同一厚度，翻面瞬间厚度天然连续（A 的 0.3 ↔ B 的 0.7 完全同值） */
+    const progAll = (tp.dir < 0) ? (1 - tp.pS) : tp.pS;
+    const rD = reelDisplay(reelRadii(progAll, bw));
+    const rL = rD[0], rR = rD[1];
+
+    ctx.save();
+    rr(ctx, win.x, win.y, win.w, win.h, win.r);
+    ctx.clip();
+    drawReel(ctx, cxL, cy, rL * bw, r0px(bw), tp.spin.L, tp.lamp);
+    drawReel(ctx, cxR, cy, rR * bw, r0px(bw), tp.spin.R, tp.lamp);
+    const wk = win.y.toFixed(2) + ':' + win.h.toFixed(2);
+    if (!bayC.wg || bayC.wgKey !== wk) {
+      const wg = ctx.createLinearGradient(0, win.y, 0, win.y + win.h);
+      wg.addColorStop(0, 'rgba(0,0,0,.16)');
+      wg.addColorStop(.34, 'rgba(0,0,0,0)');
+      wg.addColorStop(1, 'rgba(0,0,0,.14)');
+      bayC.wg = wg; bayC.wgKey = wk;
+    }
+    ctx.fillStyle = bayC.wg; ctx.fillRect(win.x, win.y, win.w, win.h);
+    /* 只有窗口里这一截拉线会随卷径动；纸下沿那一截在静态层里 */
+    paintTapeLead(ctx, bx, by, bw, bh, rad,
+      { L: { cx: cxL, cy: cy, r: rL * bw }, R: { cx: cxR, cy: cy, r: rR * bw } }, true);
+    /* 背光：窗口外的外溢留在静态层，这里只补窗口里那部分 */
+    paintTapeLamp(ctx, bx, by, bw, bh, rad, win, false, true);
+    ctx.restore();
+  }
+
+  /* 直印 / 彩壳：走原来那条「整幅重画」的路，一个像素都不改 */
+  function paintBayFull() {
+    const cv = $('#bayCv');
+    if (!cv) return;
+    const { ctx, w, h } = fit(cv);
+    ctx.clearRect(0, 0, w, h);
+
+    let bw = w * .84, bh = bw * .638;
+    if (bh > h * .86) { bh = h * .86; bw = bh / .638; }
+    const bx = (w - bw) / 2, by = (h - bh) / 2, rad = bw * .022;
+    tp.bayHit = { x: bx, y: by, w: bw, h: bh };
+
     const gap = Math.max(6, bw * .024);
     const bwx = bw + gap * 2, bhx = bh + gap * 2;
     const bxx = bx - gap, byy = by - gap, br2 = rad + gap * .9;
@@ -7007,31 +7170,23 @@ function fit(cv) {
 
     const cy = by + bh * .471;
     const cxL = bx + bw * .292, cxR = bx + bw * .708;
-    /* 走带进度平滑一下：按压翻面/跳曲时卷轴厚度不会突然跳一个量 */
     const tNow = performance.now();
     const dts = Math.min(.14, (tNow - (tp.pT || tNow)) / 1000);
     tp.pT = tNow;
     const rawP = tp.sideDur ? clamp(sideElapsed() / tp.sideDur, 0, 1) : 0;
     if (tp.pLock && tNow - tp.pLock < 800) {
-      /* 翻面后的进度锁：rawP 在 seek 完成前仍是旧面值，若参与平滑会把预置进度拖回去 → 厚度先反向后复原 */
     } else {
       tp.pLock = 0;
       tp.pS = (tp.pS == null) ? rawP : tp.pS + (rawP - tp.pS) * Math.min(1, dts * 6);
       if (Math.abs(rawP - tp.pS) < .006) tp.pS = rawP;
     }
-    const prog = tp.pS;
     tp.bw = bw;
-    /* 磁带不真翻面，只是原地倒转：厚度按「整盘位置」算（B 面 = 1-单面进度），
-       左卷始终是左卷、右卷始终是右卷，绝不镜像/互换。
-       同一盘位在 A/B 面得到同一厚度，翻面瞬间厚度天然连续（A 的 0.3 ↔ B 的 0.7 完全同值） */
-    const progAll = (tp.dir < 0) ? (1 - prog) : prog;
-    const r = reelRadii(progAll, bw);
-    const rD = reelDisplay([r[0], r[1]]);
+    const progAll = (tp.dir < 0) ? (1 - tp.pS) : tp.pS;
+    const rD = reelDisplay(reelRadii(progAll, bw));
     const rL = rD[0], rR = rD[1];
 
     const isPrint = (tp.tapeSkin || 'sticker') === 'print';
     ctx.save();
-    /* 贴纸：卷盘藏在纸后、只从小开孔露出；直印：整块透明壳，卷盘完整可见 */
     if (isPrint) rr(ctx, bx, by, bw, bh, rad); else rr(ctx, win.x, win.y, win.w, win.h, win.r);
     ctx.clip();
     drawReel(ctx, cxL, cy, rL * bw, r0px(bw), tp.spin.L, tp.lamp);
@@ -7046,37 +7201,11 @@ function fit(cv) {
     ctx.restore();
 
     paintTapeMech(ctx, bx, by, bw, bh, rad, { L: { cx: cxL, cy: cy, r: rL * bw }, R: { cx: cxR, cy: cy, r: rR * bw } });
-    /* 直印：半透明彩壳 veil + 印刷文字覆在机芯之上（透过壳看到带体运转） */
-    if ((tp.tapeSkin || 'sticker') === 'print') paintTapePrint(ctx, bx, by, bw, bh, rad);
+    if (isPrint) paintTapePrint(ctx, bx, by, bw, bh, rad);
     paintShell(ctx, bx, by, bw, bh, rad);
-
-    if (tp.lamp > .02) {
-      /* 背光只打在中间的观察窗：灯从窗口后面透进来，窗外的纸面/下壳保持原色 */
-      const mx = bx + bw * .5, my = cy;
-      const rr0 = isPrint ? Math.max(bw * .30, bh * .40) : Math.max(win.w * .24, win.h * .46);
-      ctx.save();
-      if (isPrint) rr(ctx, bx, by, bw, bh, rad); else rr(ctx, win.x, win.y, win.w, win.h, win.r);
-      ctx.clip();
-      const rg = ctx.createRadialGradient(mx, my, rr0 * .20, mx, my, rr0);
-      rg.addColorStop(0, 'rgba(255,206,158,' + (.075 * tp.lamp) + ')');
-      rg.addColorStop(.55, 'rgba(255,192,140,' + (.030 * tp.lamp) + ')');
-      rg.addColorStop(1, 'rgba(255,186,132,0)');
-      ctx.fillStyle = rg;
-      if (isPrint) ctx.fillRect(bx, by, bw, bh); else ctx.fillRect(win.x, win.y, win.w, win.h);
-      ctx.restore();
-      /* 窗口边缘一圈很淡的外溢：光像是从洞里漏出来的 */
-      ctx.save();
-      rr(ctx, bx, by, bw, bh, rad); ctx.clip();
-      ctx.shadowColor = 'rgba(255,182,120,' + (.10 * tp.lamp) + ')';
-      ctx.shadowBlur = bw * .028;
-      ctx.fillStyle = 'rgba(255,182,120,' + (.012 * tp.lamp) + ')';
-      rr(ctx, win.x, win.y, win.w, win.h, win.r); ctx.fill();
-      ctx.restore();
-    }
-
+    paintTapeLamp(ctx, bx, by, bw, bh, rad, win, isPrint, false);
     paintBayRim(ctx, bxx, byy, bwx, bhx, br2, bw);
   }
-
   /* 仓口棱线最后压一遍：磁带的外阴影会吃掉它，重新描一圈才立得住 */
   function paintBayRim(ctx, bxx, byy, bwx, bhx, br2, bw) {
     const lw = Math.max(1, bw * .0024);
@@ -8235,7 +8364,7 @@ function hookNowArt() {
       tp.album ? tp.album.id : '', tp.tapeSkin, tp.side, tp.dir, tp.jcImg ? 1 : 0,
       Math.round(tp.spin.L * 120), Math.round(tp.spin.R * 120), Math.round(tp.lamp * 30),
       tp.scrub ? 1 : 0, tp.burstUntil ? 1 : 0].join('|');
-    if (sig !== tp.baySig) { tp.baySig = sig; paintBay(); }
+    if (sig !== tp.baySig) { tp.baySig = sig; paintBay(false); }
     if (ts - tp.skinTick > 600) {
       tp.skinTick = ts; syncSide();
       /* 标题栏封面跟着当前这盘走：以前换带后它可能还挂着上一盘 */

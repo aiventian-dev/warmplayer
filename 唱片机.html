@@ -1169,7 +1169,7 @@ body[data-theme="paper"] .row .line{text-shadow:none}
 @media (max-aspect-ratio:1/1){
   body.shelf-off .meters{width:min(100%,1460px)}
 }
-@media (max-width:900px){
+@media (max-width:900px) and (max-aspect-ratio:4/5){
   :root{--shelf-w:0px}
   .body{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
   .shelf-col{min-width:0;border-left:0;border-top:1px solid var(--hair)}
@@ -1261,7 +1261,8 @@ body.shelf-anim .record .disc{will-change:transform}
   .atmos-mid{flex:0 0 100%;height:22px;margin:6px 0 0;padding-left:0;
     justify-content:center;align-self:center}   /* 折行后独占一行、横向居中，与按钮留出间距 */
   .atmos-mid img{width:88px}
-  .shelf-col{max-height:20vh}
+  /* 20vh 是给底部横条用的，右侧栏是竖列，截成一条只剩一两张卡 */
+  body.strip .shelf-col{max-height:20vh}
 }
 
 /* 竖屏大屏（车机 / iPad）：整体加大一档，避免元素看着太小 */
@@ -1383,7 +1384,7 @@ html[data-client="car"] .row .yr{font-size:11.5px}
 
 /* ====== 上下模式（561–900px，PC / iPad 竖持）：歌词折行，不再截成单行省略 ====== */
 /* 上下模式统一：手机和 PC / iPad 竖持用同一套播放区规则 */
-@media (max-width:900px){
+@media (max-width:900px) and (max-aspect-ratio:4/5){
   .now{width:100%;max-width:none;text-align:center}   /* 横向有空间，播放区用满宽，别被唱盘尺寸带窄 */
   .now-bar{justify-content:center}
   .ctrls{flex-wrap:wrap;row-gap:10px;justify-content:center}
@@ -1486,7 +1487,7 @@ body[data-theme="metal"]{--sp-on:#d9dce0;--sp-off:#4b4f55}
 }
 
 /* ====== 移动端横向溢出修正 + 顶栏不裁切 ====== */
-@media (max-width:900px){
+@media (max-width:900px) and (max-aspect-ratio:4/5){
   .app{grid-template-columns:minmax(0,1fr) !important}
   .body{min-width:0;max-width:100vw}
   .body > *{min-width:0}
@@ -1569,7 +1570,7 @@ body[data-theme="metal"]{--sp-on:#d9dce0;--sp-off:#4b4f55}
   padding:4px 10px;font-family:inherit;transition:color .18s,background .18s}
 .vr-scanrow button:hover{color:var(--ink);background:rgba(255,255,255,.08)}
 /* 窄屏 / 车机安全区沿用原口径 */
-@media (max-width:900px){
+@media (max-width:900px) and (max-aspect-ratio:4/5){
   .vrHead,.shelf-head,.shelf-foot{padding-left:12px;padding-right:12px}
   .shelf{padding-left:10px;padding-right:10px}
 }
@@ -2164,7 +2165,8 @@ const el = {
 /* ================= 布局 ================= */
 function carPortrait(){ return window.matchMedia('(max-aspect-ratio:1/1)').matches; }
 // 只有 Android WebView（蔚来车机）需要把 3D 翻面降级成压扁；iPad / 桌面一律真 3D
-function stripMode(){ return window.matchMedia('(max-width:900px)').matches; }
+/* 窄屏纵向堆叠只在"竖向"视口启用：它按宽度排、按高度吃，宽而矮的视口（手机投屏到车机）会压叠。宽高比 >4:5 一律走双栏。 */
+function stripMode(){ return window.matchMedia('(max-width:900px) and (max-aspect-ratio:4/5)').matches; }
 function flatFlip(){
   const ua = navigator.userAgent;
   return /Android/i.test(ua) || /\bwv\b/i.test(ua) || location.search.indexOf('flat=1') >= 0;
