@@ -2384,13 +2384,17 @@ function centerBrand(){
   const b = document.querySelector('.brand');
   const t = document.querySelector('.tools');
   const m = document.getElementById('meters');
+  const dw = document.querySelector('.deck-wrap');
   if (!b || !t || !m) return;
   if (document.body.classList.contains('full-size-mode')){ b.style.transform = ''; return; }
   if (window.innerWidth > 560){ b.style.transform = ''; return; }
   b.style.transform = 'none';
   const tr = t.getBoundingClientRect();
   const br = b.getBoundingClientRect();
-  const mr = m.getBoundingClientRect();
+  /* 选了“无表头”时表头是 display:none，rect 全为 0，不能当参照；改用唱盘上沿，
+     曲名才会落在工具栏和唱盘之间，而不是被一个负位移顶到页面最顶上 */
+  const mr = (m.getBoundingClientRect().height > 0) ? m.getBoundingClientRect()
+           : (dw ? dw.getBoundingClientRect() : m.getBoundingClientRect());
   const shift = Math.round((mr.top - tr.bottom - br.height) / 2 - (br.top - tr.bottom));
   b.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
 }
