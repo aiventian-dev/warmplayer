@@ -1070,6 +1070,21 @@ html,body{overflow-anchor:none}
 .sw[aria-checked="true"]{border-color:var(--ink)}
 .sw[aria-checked="true"] i{left:23px;opacity:.92}
 
+/* 移动端：设置区收紧——说明文字收起、开关与行距压小，给目录让出高度 */
+@media (max-width:600px), (max-height:520px){
+  .sheet-foot{padding:8px 16px 14px}
+  .sheet-foot .setrow{margin-top:6px;padding-top:6px;gap:10px}
+  .sheet-foot .setl{gap:0}
+  .sheet-foot .setl span{display:none}
+  .sheet-foot .setrow.sub{margin-top:2px}
+  .sheet-foot .setrow.sub::before{top:8px;bottom:2px}
+  .sheet-foot .sw{width:38px;height:22px;border-radius:11px}
+  .sheet-foot .sw i{width:14px;height:14px;top:3px;left:3px}
+  .sheet-foot .sw[aria-checked="true"] i{left:21px}
+  .sheet-foot .setrow select{font-size:10.5px;padding:5px 22px 5px 9px}
+  .sheet-foot .setrow .rng{width:96px}
+}
+
 /* 宽屏：侧栏分界线拉到顶，工具栏右段落在侧栏内并横向居中 */
 @media (min-aspect-ratio:1/1){
   :root{--shelf-w:clamp(272px,23vw,346px)}
@@ -5105,6 +5120,11 @@ async function addFolder(path){
 
 /* ================= 事件 ================= */
 let tapTimer = null, fsToggle = null;
+/* 套壳 app（iOS/iPadOS WKWebView）判定：壳注册了 appSettings 桥，浏览器里没有 */
+function isShellApp(){
+  try { if (sessionStorage.getItem('wm.app') === '1') return true; } catch (e) {}
+  try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appSettings); } catch (e) { return false; }
+}
 document.addEventListener('pointerdown', function(e){
   if (state.sheetOpen) return;
   const t = e.target;
@@ -5127,6 +5147,8 @@ document.addEventListener('pointerdown', function(e){
     : function(){ toggleShelf(true); };
   if (!act) return;
   // 空白处双击 = 进 / 退全屏：第一下等 220ms，第二下到就改走全屏
+  // 套壳内窗口本身就是全屏，没有可切的全屏：点击立即生效，不吞第二下来切全屏
+  if (isShellApp()){ act(); return; }
   if (tapTimer){
     clearTimeout(tapTimer); tapTimer = null;
     if (fsToggle) fsToggle();
@@ -5752,6 +5774,7 @@ function seekByTap(e){
 
   /* ---- 全屏 ---- */
   const fsBtn = document.getElementById('fullBtn');
+  if (fsBtn && isShellApp()){ fsBtn.style.display = 'none'; }   // 套壳：窗口本身就是全屏，全屏/退出图标都不再出现
   let fsRelayoutT = 0, bgLockT = 0;
   /* 全屏切换时浏览器会重建渲染表面，那一帧必定黑一下。
      这里只把「页面自己的重活」从那一帧挪开：布局立刻算（便宜），
