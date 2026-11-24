@@ -1496,18 +1496,19 @@ body.full-size-mode:not(.giant-lyrics-ready) .stage{
    艺术家单独一行，视觉上先唱片后作者，比「专辑名 艺术家 年份」一串更好读 */
 .brand .year{display:none}
 @media (max-width:560px){
-  /* 整块按屏幕宽度居中：专辑名不截断，太长就换行；年份跟在标题末尾，艺术家独占一行 */
-  body[data-meter="none"] .brand.meta2{display:block;width:100%;max-width:100%;text-align:center;line-height:1.3}
+  /* 无表头手机端：一行标题 + 一行艺术家，都居中；标题放不下就省略，不折行 */
+  body[data-meter="none"] .brand.meta2{display:block;width:100%;max-width:100%;text-align:center}
   body[data-meter="none"] .brand.meta2 .dot{display:none}
-  body[data-meter="none"] .brand.meta2 .mark{display:inline;white-space:normal;overflow:visible;
-    text-overflow:clip;overflow-wrap:anywhere;word-break:break-word;text-align:center}
-  body[data-meter="none"] .brand.meta2 .year{display:inline-block;margin-left:7px;font-size:10.5px;
-    letter-spacing:.03em;color:var(--dim);white-space:nowrap}
-  body[data-meter="none"] .brand.meta2 .state{display:block;margin-top:3px;font-size:11px;height:auto;
-    white-space:normal;text-align:center;text-transform:none;letter-spacing:.03em}
+  body[data-meter="none"] .brand.meta2 .mark{display:block;width:100%;max-width:100%;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;text-align:center}
+  body[data-meter="none"] .brand.meta2 .year{display:none}   /* 这个场景不要年份 */
+  body[data-meter="none"] .brand.meta2 .state{display:block;width:100%;max-width:100%;margin-top:3px;
+    font-size:11px;height:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;
+    text-transform:none;letter-spacing:.03em}
   body[data-meter="none"] .brand.meta2 .state .a,body[data-meter="none"] .brand.meta2 .state .y{display:inline;
-    max-width:none;overflow:visible;text-overflow:clip;white-space:normal}
-  body[data-meter="none"] .brand.meta2 .state .y{display:none}   /* 年份已上移到标题行，不重复 */
+    max-width:none;overflow:visible;text-overflow:clip;white-space:nowrap}
+  body[data-meter="none"] .brand.meta2 .state .y{display:none}
+}   /* 年份已上移到标题行，不重复 */
 }   /* 年份已经上移到专辑名那一行 */
 }
 
