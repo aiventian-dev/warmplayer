@@ -1491,6 +1491,24 @@ body.full-size-mode:not(.giant-lyrics-ready) .stage{
   body .lyr.on{visibility:visible}
 }
 
+/* ====== 无表头（手机竖屏）：品牌行折两行——上行「专辑名 + 年份」，下行艺术家 ====== */
+/* 表头让位后这块地更窄，专辑名、年代、艺术家挤一行必然被裁；年份跟专辑名同行，
+   艺术家单独一行，视觉上先唱片后作者，比「专辑名 艺术家 年份」一串更好读 */
+.brand .year{display:none}
+@media (max-width:560px){
+  body[data-meter="none"] .brand.meta2{display:grid;grid-template-columns:auto auto;justify-content:center;align-items:baseline;
+    row-gap:3px;column-gap:7px;max-width:100%}
+  body[data-meter="none"] .brand.meta2 .dot{display:none}
+  body[data-meter="none"] .brand.meta2 .mark{grid-column:1;grid-row:1;min-width:0;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;text-align:left}
+  body[data-meter="none"] .brand.meta2 .year{grid-column:2;grid-row:1;display:block;font-size:10.5px;
+    letter-spacing:.03em;color:var(--dim);white-space:nowrap;flex:none}
+  body[data-meter="none"] .brand.meta2 .state{grid-column:1 / -1;grid-row:2;display:flex;justify-content:center;
+    gap:0;font-size:11px;height:auto;white-space:nowrap}
+  body[data-meter="none"] .brand.meta2 .state .a{display:inline;max-width:none;overflow:visible;text-overflow:clip;white-space:nowrap}
+  body[data-meter="none"] .brand.meta2 .state .y{display:none}   /* 年份已经上移到专辑名那一行 */
+}
+
 /* ====== 上下模式（561–900px，PC / iPad 竖持）：歌词折行，不再截成单行省略 ====== */
 /* 上下模式统一：手机和 PC / iPad 竖持用同一套播放区规则 */
 @media (max-width:900px) and (max-aspect-ratio:4/5){
@@ -1751,7 +1769,7 @@ html[data-client="car"] .shelf-foot{padding-bottom:calc(10px + var(--safe-bottom
   </svg></span>
   <header class="topbar">
     <div class="brand">
-      <span class="mark" id="deckName">唱盘 A</span><span class="dot" id="deckDot"></span><span class="state" id="stageState">待机</span>
+      <span class="mark" id="deckName">唱盘 A</span><span class="dot" id="deckDot"></span><span class="year" id="deckYear"></span><span class="state" id="stageState">待机</span>
     </div>
     <div class="tools">
       <div class="tools-left">
@@ -2293,7 +2311,7 @@ const el = {
   barFill: $('#barFill'), barDot: $('#barDot'), tCur: $('#tCur'), tDur: $('#tDur'),
   playBtn: $('#playBtn'), playCap: $('#playCap'), prevBtn: $('#prevBtn'), nextBtn: $('#nextBtn'),
   ejectBtn: $('#ejectBtn'), stopBtn: $('#stopBtn'), stageState: $('#stageState'),
-  deckName: $('#deckName'), deckDot: $('#deckDot'),
+  deckName: $('#deckName'), deckDot: $('#deckDot'), deckYear: $('#deckYear'), brand: $('.brand'),
   shelf: $('#shelf'), q: $('#q'), sortSel: $('#sortSel'), sortDirBtn: $('#sortDirBtn'),
   dirBtn: $('#dirBtn'), rescanBtn: $('#rescanBtn'),
   sheet: $('#sheet'), sheetClose: $('#sheetClose'), sheetTitle: $('#sheetTitle'),
@@ -3885,6 +3903,8 @@ function updateDeck(){
     setLabelText(cur);
     el.deckName.textContent = cur.title || '唱盘 A';
     const yr = cur.year ? String(cur.year) : '';
+    if (el.deckYear) el.deckYear.textContent = yr;
+    if (el.brand) el.brand.classList.add('meta2');   /* 手机无表头时折两行：上行专辑名+年份，下行艺术家 */
     const ar = cur.artist || '';
     el.stageState.innerHTML = ar
       ? '<span class="a">' + esc(ar) + '</span>' + (yr ? '<span class="y">' + esc(yr) + '</span>' : '')
@@ -3893,6 +3913,8 @@ function updateDeck(){
   } else {
     setLabelText(null);
     el.deckName.textContent = '唱盘 A';
+    if (el.deckYear) el.deckYear.textContent = '';
+    if (el.brand) el.brand.classList.remove('meta2');
     el.stageState.textContent = '待机';
     el.stageState.classList.remove('meta');
   }
