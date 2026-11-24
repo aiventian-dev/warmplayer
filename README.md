@@ -148,3 +148,8 @@ No database, no node_modules. The pages talk to `/api/*` endpoints on the same o
 ## Credits
 
 Built with care for physical media that never wore out. Album art in screenshots belongs to its respective owners and is shown for demonstration only.
+
+## Author & License
+
+WarmPlayer is created and maintained by **田瑞航 (Ryan)** — [github.com/aiventian-dev](https://github.com/aiventian-dev).  
+Started in 2026. Copyright (c) 2026 田瑞航 (Ryan). Licensed under the [MIT License](LICENSE).

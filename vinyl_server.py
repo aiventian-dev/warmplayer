@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# WarmPlayer · 黑胶唱片播放器 + 磁带卡座
+# Copyright (c) 2026 田瑞航 (Ryan) · github.com/aiventian-dev
+# Licensed under the MIT License (see LICENSE)
 """
 黑胶唱片机 · 本地服务
 --------------------------------------------------

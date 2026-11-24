@@ -148,3 +148,8 @@ vinyl_server.py     Python 标准库 HTTP 服务（ThreadingHTTPServer）
 ## 致谢
 
 献给那些永远不会磨损的实体介质。截图中的专辑封面版权归各自权利人所有，仅作演示。
+
+## 作者与许可
+
+WarmPlayer 由 **田瑞航（Ryan）** 创作与维护 — [github.com/aiventian-dev](https://github.com/aiventian-dev)。  
+项目始于 2026 年。Copyright (c) 2026 田瑞航（Ryan），采用 [MIT 许可证](LICENSE)。
