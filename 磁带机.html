@@ -2001,7 +2001,7 @@ html[data-client="car"] .atmos-mid img.dlbimg{width:140px}
 </script>
 </head>
 <script>(function(){
-  var CK = 'vinyl_prefs', KEYS = ['vinyl.meter','vinyl.tape.skin','vinyl.tape.theme','vinyl.theme','vinyl.muted','vinyl.crackle','vinyl.crackle.vol','vinyl.crackle.sound','vinyl.color','vinyl.bgblur','vinyl.sort','vinyl.sdir','vinyl.lyrTitle','vinyl.pattern.opacity'];
+  var CK = 'vinyl_prefs', KEYS = ['vinyl.meter','vinyl.tape.skin','vinyl.tape.theme','vinyl.theme','vinyl.muted','vinyl.crackle','vinyl.crackle.vol','vinyl.crackle.sound','vinyl.color','vinyl.bgblur','vinyl.sort','vinyl.sdir','vinyl.lyrTitle','vinyl.randomContinue','vinyl.pattern.opacity'];
   var store = null; try { store = window.localStorage; } catch (e) {}
   function rd(){ var m = document.cookie.match(/(?:^|; )vinyl_prefs=([^;]*)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(m[1])); } catch (e) { return null; } }
   function wr(o){ try { document.cookie = CK + '=' + encodeURIComponent(JSON.stringify(o)) + '; path=/; max-age=' + (365*86400) + '; SameSite=Lax'; } catch (e) {} }
@@ -2495,6 +2495,10 @@ html[data-client="car"] .atmos-mid img.dlbimg{width:140px}
           </select>
         </div>
         <div class="setrow">
+          <div class="setl"><b>随机续播</b><span>整盒随机接续，盒内按曲序播放</span></div>
+          <button class="sw" id="randomContinueSw" role="switch" aria-checked="false" aria-label="随机续播"><i></i></button>
+        </div>
+        <div class="setrow">
           <div class="setl"><b>左上角 Logo</b><span>关掉只留专辑信息，画面更干净</span></div>
           <button class="sw" id="lgSw" role="switch" aria-checked="true" aria-label="左上角 Logo"><i></i></button>
         </div>
@@ -2567,6 +2571,7 @@ window.__vpSoon = (function () {
 
 /* ================= 状态 ================= */
 const state = {
+  randomContinue: false, // 一盒放完后随机换下一盒
   lyrTitle: false,       // 把歌词写进系统歌曲信息（车机标题条滚动显示歌词）
   albums: [], folders: [], scan: null,
   sleeve: null,          // {album, back}
@@ -3836,6 +3841,17 @@ audio.addEventListener('ended', function(){
     return;
   }
   if (state.track + 1 < a.tracks.length) goTrack(state.track + 1);
+  else if (state.randomContinue){
+    const nextAlbum = randomAlbumPick();
+    state.playing = false; state.needle = false;
+    updateDeck(); renderNow(); updateArm();
+    if (nextAlbum){
+      if (el.cueHint) el.cueHint.classList.remove('on');
+      window.__tpMount(nextAlbum.id, 0, true);
+      return;
+    }
+    if (el.cueHint) el.cueHint.classList.add('on');
+  }
   else { state.playing = false; state.needle = false; updateDeck(); renderNow(); updateArm(); if (el.cueHint) el.cueHint.classList.add('on'); }
 });
 /* ================= 车机媒体控制（Media Session） =================
@@ -5353,6 +5369,21 @@ function randomAlbumPick(){
   state.lastPickId = pick.id;
   return pick;
 }
+/* 随机续播：全局设置（与唱片页共用同一开关状态）；仅在一盒磁带放完时换下一盒。 */
+(function initRandomContinue(){
+  try { state.randomContinue = localStorage.getItem('vinyl.randomContinue') === '1'; } catch (e){}
+  const b = document.getElementById('randomContinueSw');
+  function paint(){ if (b) b.setAttribute('aria-checked', state.randomContinue ? 'true' : 'false'); }
+  paint();
+  if (!b) return;
+  b.addEventListener('click', function(e){
+    e.preventDefault(); e.stopPropagation();
+    state.randomContinue = !state.randomContinue;
+    try { localStorage.setItem('vinyl.randomContinue', state.randomContinue ? '1' : '0'); } catch (err){}
+    paint();
+  });
+})();
+
 /* 随机抽片：先让封套从架子上立起来，再从套子里把唱片抽到盘上 */
 function sleeveThenPlay(pick){
   openSleeve(pick, rowOf(pick));
