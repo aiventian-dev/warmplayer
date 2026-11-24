@@ -314,16 +314,17 @@ html[data-client="car"] .atmos-mid img{width:132px}
 .tools-left{display:flex;align-items:center;gap:6px;min-width:0}
 .themes{display:flex;align-items:center;gap:12px;margin-right:6px}
 
-.themes button{width:15px;height:15px;border-radius:50%;border:1px solid var(--hair);
-  position:relative;transition:transform .2s var(--ease)}
+.themes button{width:15px;height:15px;aspect-ratio:1;flex:0 0 15px;box-sizing:border-box;
+  padding:0;appearance:none;-webkit-appearance:none;border-radius:50%;overflow:hidden;
+  border:1px solid var(--hair);background-clip:padding-box;position:relative;transition:transform .2s var(--ease),box-shadow .2s}
 .themes button[data-theme="ink"]{background:#3c3c3f}
 .themes button[data-theme="black"]{background:#08080a}
 .themes button[data-theme="paper"]{background:#f1ece1}
 .themes button[data-theme="wood"]{background:linear-gradient(135deg,#8a5c37,#5b3a22)}
 .themes button[data-theme="metal"]{background:linear-gradient(180deg,#8e9299,#4a4c51)}
-.themes button.on{border-color:var(--ink);transform:scale(1.12)}
-.themes button.on::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--hair-2)}
-@media (pointer:coarse){.themes{gap:14px}.themes button{width:22px;height:22px}}
+.themes button.on{border-color:var(--ink);transform:scale(1.12);box-shadow:0 0 0 1px var(--hair-2)}
+body[data-theme="paper"] .themes button[data-theme="paper"]{border-color:rgba(0,0,0,.22)}
+@media (pointer:coarse){.themes{gap:14px}.themes button{width:22px;height:22px;flex-basis:22px}}
 .iconbtn{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;
   color:var(--dim);transition:color .2s,background .2s}
 #fullBtn svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round}
@@ -955,6 +956,11 @@ html,body{overflow-anchor:none}
   padding:10px clamp(16px,1.8vw,24px) clamp(12px,1.7vh,20px);border-top:1px solid var(--hair-2)}
 .fbtn{font-size:10.5px;letter-spacing:.06em;color:var(--dim);padding:5px 2px;transition:color .2s}
 .fbtn:hover{color:var(--ink)}
+.full-size-setting{display:flex;align-items:center;gap:9px;margin-right:auto;font-size:10.5px;letter-spacing:.04em;color:var(--dim)}
+.full-size-setting[hidden]{display:none}
+.full-size-setting .sw{width:38px;height:22px;border-radius:12px}
+.full-size-setting .sw i{width:14px;height:14px;top:3px;left:3px}
+.full-size-setting .sw[aria-checked="true"] i{left:19px}
 
 /* ============ 目录面板 ============ */
 .sheet{position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end;
@@ -1299,7 +1305,7 @@ html[data-client="car"] .brand .state .y{font-size:13px}
 html[data-client="car"] .brand .dot{width:5px;height:5px}
 html[data-client="car"] .mtsel{height:30px;font-size:12.5px;padding:0 32px 0 13px;border-radius:15px}
 html[data-client="car"] .iconbtn{width:36px;height:36px}
-html[data-client="car"] .themes button{width:18px;height:18px}
+html[data-client="car"] .themes button{width:18px;height:18px;flex-basis:18px}
 html[data-client="car"] .meters{height:84px;width:min(100%,780px)}
 html[data-client="car"] .stage{padding-top:calc(92px + var(--safe-top))}
 html[data-client="car"] .stage-main{padding-top:0;gap:6px}
@@ -1375,6 +1381,82 @@ html[data-client="car"] .row{min-height:62px}
 html[data-client="car"] .row .n{font-size:14.5px}
 html[data-client="car"] .row .a{font-size:11.5px}
 html[data-client="car"] .row .yr{font-size:11.5px}
+
+/* ============ 全尺寸黑胶：仅在 Mac 全屏时由侧栏开关启用 ============ */
+body.full-size-mode .stage{
+  --full-gutter:clamp(12px,1.5vw,36px);
+  display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);
+  grid-template-rows:var(--full-vspace,0px) var(--full-side-vspace,25px) minmax(125px,auto) minmax(0,1fr) auto var(--full-side-vspace,25px) var(--full-vspace,0px);
+  align-items:stretch;justify-content:stretch;
+  column-gap:var(--full-gutter);row-gap:0;
+  padding:calc(46px + var(--safe-top)) var(--full-gutter) calc(46px + var(--safe-bottom));
+}
+@media (hover:hover) and (pointer:fine){
+  body.full-size-mode .topbar .tools{opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-4px);
+    transition:opacity .22s ease,transform .22s ease,visibility 0s linear .22s}
+  body.full-size-mode .topbar .tools.tools-revealed{opacity:1;visibility:visible;pointer-events:auto;transform:none;
+    transition-delay:0s}
+}
+body.full-size-mode .stage-main{display:contents}
+body.full-size-mode .deck-wrap{grid-column:1;grid-row:1 / span 7;align-self:center;justify-self:center;width:100%;height:auto;min-width:0}
+body.full-size-mode .meter-slot{grid-column:2;grid-row:3;align-self:start;justify-self:end;width:calc(70% + 100px);margin-right:50px;min-width:0;transform:translateY(20%)}
+body.full-size-mode #meters{width:100%;max-width:none;height:104px;margin:0}
+body.full-size-mode .now{grid-column:2;grid-row:5;align-self:end;justify-self:end;width:calc(70% + 100px);margin-right:50px;max-width:none;margin-top:0;margin-bottom:0;padding:0;max-height:100%;overflow:hidden}
+body.full-size-mode .now-title{white-space:normal;overflow-wrap:anywhere}
+body.full-size-mode .ctrls{flex-wrap:nowrap;justify-content:flex-start;gap:clamp(8px,1vw,16px)}
+body.full-size-mode .ctrls>.pill{flex:0 0 auto}
+body.full-size-mode .pill{height:50px;border-radius:26px}
+body.full-size-mode .pill-play{width:130px}
+body.full-size-mode .pill-ico{width:48px}
+body.full-size-mode .pill-ico svg{width:18px;height:18px}
+.giant-lyrics{display:none;grid-column:2;grid-row:4;align-self:stretch;justify-self:end;width:calc(70% + 100px);margin-right:50px;min-width:0;min-height:0;max-height:100%;
+  overflow:hidden;text-align:left;color:var(--ink);pointer-events:none}
+body.full-size-mode.giant-lyrics-ready .giant-lyrics{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:clamp(9px,calc(.65vh + 5px),15px)}
+body.full-size-mode .meter-slot,body.full-size-mode .giant-lyrics,body.full-size-mode .now{position:relative;z-index:1}
+body.full-size-mode .arm-svg{transform-origin:94.67% 11.78%;transition:transform .24s ease}
+.full-size-mode .atmos-mid{flex:0 0 auto;white-space:nowrap;display:flex!important}
+.full-size-mode .atmos-mid img{display:block;max-width:none}
+.giant-lyrics{mask-image:linear-gradient(to bottom,transparent 0%,#000 12%,#000 88%,transparent 100%);
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0%,#000 12%,#000 88%,transparent 100%)}
+.giant-lyrics-track{display:flex;flex-direction:column;gap:clamp(9px,calc(.65vh + 5px),15px);width:100%;will-change:transform;
+  transition:transform .72s cubic-bezier(.22,.78,.18,1)}
+.giant-lyrics-track.scrolling{transform:translateY(calc(-1.4em - clamp(9px,calc(.65vh + 5px),15px)))}
+.giant-lyrics-track.resetting{transition:none!important}
+.giant-lyric{display:block;flex:0 0 1.4em;width:100%;max-width:100%;height:1.4em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  line-height:1.4;letter-spacing:.02em;text-align:left;font-size:clamp(21px,1.9vw,33px);font-weight:700;opacity:.42;filter:blur(1.6px)}
+.giant-lyric.current{opacity:.98;filter:none}
+body.full-size-mode .stage::before{display:none}
+body.full-size-mode:not(.giant-lyrics-ready) .stage{
+  grid-template-rows:var(--full-vspace,0px) minmax(0,1fr) minmax(125px,auto) 0 auto minmax(0,1fr) var(--full-vspace,0px)
+}
+@media (max-width:1200px){
+  body.full-size-mode .stage{grid-template-columns:minmax(0,1.12fr) minmax(0,.88fr);
+    grid-template-rows:var(--full-vspace,0px) var(--full-side-vspace,25px) minmax(125px,auto) minmax(0,1fr) auto var(--full-side-vspace,25px) var(--full-vspace,0px);column-gap:var(--full-gutter)}
+  body.full-size-mode .deck-wrap{grid-column:1;grid-row:1 / span 7}
+  body.full-size-mode .meter-slot{grid-column:2;grid-row:3}
+  body.full-size-mode .giant-lyrics{grid-column:2;grid-row:4}
+  body.full-size-mode .now{grid-column:2;grid-row:5}
+  body.full-size-mode .now-title{font-size:clamp(21px,2.6vw,34px)}
+  body.full-size-mode .now-sub{font-size:clamp(11px,1.25vw,14px)}
+  body.full-size-mode #meters{height:104px}
+}
+@media (max-width:760px){
+  body.full-size-mode .stage{--full-gutter:clamp(10px,2.6vw,18px);grid-template-columns:minmax(0,1fr) minmax(0,.92fr);
+    grid-template-rows:var(--full-vspace,0px) var(--full-side-vspace,25px) minmax(125px,auto) minmax(0,1fr) auto var(--full-side-vspace,25px) var(--full-vspace,0px)}
+  body.full-size-mode .deck-wrap{grid-column:1;grid-row:1 / span 7}
+  body.full-size-mode .meter-slot{grid-column:2;grid-row:3}
+  body.full-size-mode .giant-lyrics{grid-column:2;grid-row:4}
+  body.full-size-mode .now{grid-column:2;grid-row:5}
+  body.full-size-mode .now-title{font-size:clamp(18px,4vw,25px)}
+  body.full-size-mode .now-sub{font-size:11px}
+  body.full-size-mode .ctrls{gap:6px}
+  body.full-size-mode .pill{height:42px}
+  body.full-size-mode .pill-play{width:70px}
+  body.full-size-mode .pill-play .cap{display:none}
+  body.full-size-mode .pill-ico{width:38px}
+  body.full-size-mode .pill-ico svg{width:15px;height:15px}
+  body.full-size-mode .giant-lyric{font-size:clamp(15px,2.7vw,22px)}
+}
 
 @media (prefers-reduced-motion:reduce){
   .record .disc{animation:none!important}
@@ -1973,6 +2055,20 @@ html[data-client="car"] .shelf-foot{padding-bottom:calc(10px + var(--safe-bottom
       </div>
       </div>
 
+      <div class="giant-lyrics" id="giantLyrics" aria-live="off">
+        <div class="giant-lyrics-track" id="giantLyricsTrack">
+        <div class="giant-lyric prev4" id="giantLyricPrev4"></div>
+        <div class="giant-lyric prev3" id="giantLyricPrev3"></div>
+        <div class="giant-lyric prev2" id="giantLyricPrev2"></div>
+        <div class="giant-lyric prev" id="giantLyricPrev"></div>
+        <div class="giant-lyric current" id="giantLyricCurrent"></div>
+        <div class="giant-lyric next" id="giantLyricNext"></div>
+        <div class="giant-lyric next2" id="giantLyricNext2"></div>
+        <div class="giant-lyric next3" id="giantLyricNext3"></div>
+        <div class="giant-lyric next4" id="giantLyricNext4"></div>
+        </div>
+      </div>
+
       <div class="now">
         <h2 class="now-title empty" id="nowTitle">从唱片架抽一张唱片</h2>
         <div class="now-sub" id="nowSub">读出你的唱片…</div>
@@ -2031,6 +2127,10 @@ html[data-client="car"] .shelf-foot{padding-bottom:calc(10px + var(--safe-bottom
       </div>
       <div class="shelf" id="shelf"></div>
       <div class="shelf-foot">
+        <div class="full-size-setting" id="fullSizeOption" hidden>
+          <span>全尺寸</span>
+          <button class="sw" id="fullSizeSwitch" type="button" role="switch" aria-checked="false" aria-label="全尺寸黑胶模式"><i></i></button>
+        </div>
         <button class="fbtn" id="dirBtn">+ 音乐目录</button>
         <button class="fbtn" id="rescanBtn">重扫</button>
       </div>
@@ -2091,6 +2191,10 @@ html[data-client="car"] .shelf-foot{padding-bottom:calc(10px + var(--safe-bottom
         <div class="setrow">
           <div class="setl"><b>歌词显示到车机</b><span>将当前歌词同步到车机歌曲标题</span></div>
           <button class="sw" id="lyrTitleSw" role="switch" aria-checked="false" aria-label="歌词显示到车机"><i></i></button>
+        </div>
+        <div class="setrow">
+          <div class="setl"><b>随机续播</b><span>整张唱片随机接续，唱片内按曲序播放</span></div>
+          <button class="sw" id="randomContinueSw" role="switch" aria-checked="false" aria-label="随机续播"><i></i></button>
         </div>
         <div class="setrow">
           <div class="setl"><b>彩胶盘面</b><span>用封面较亮的颜色做盘体，纹路保留</span></div>
@@ -2169,6 +2273,7 @@ const enc = s => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
 
 /* ================= 状态 ================= */
 const state = {
+  randomContinue: false,
   lyrTitle: false,       // 把歌词写进系统歌曲信息（车机标题条滚动显示歌词）
   albums: [], folders: [], scan: null,
   sleeve: null,          // {album, back}
@@ -2221,6 +2326,18 @@ function shelfHidden(){ return document.body.classList.contains('shelf-off'); }
 function toggleShelf(off){
   if (typeof off !== 'boolean') off = !shelfHidden();
   if (off === shelfHidden()) return;
+  if (document.body.classList.contains('full-size-mode')){
+    if (off){
+      const cssDeck = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--deck')) || 0;
+      fullSizeArmCap = deckCached || cssDeck || 0;
+      try { sessionStorage.setItem('vinyl.fullsize-arm-cap', String(fullSizeArmCap)); } catch (e){}
+    } else {
+      fullSizeArmCap = 0;
+      try { sessionStorage.removeItem('vinyl.fullsize-arm-cap'); } catch (e){}
+      const armSvg = document.getElementById('armSvg');
+      if (armSvg) armSvg.style.transform = '';
+    }
+  }
   document.body.classList.add('shelf-anim');
   clearTimeout(toggleShelf._t);
   toggleShelf._t = setTimeout(function(){ document.body.classList.remove('shelf-anim'); }, 460);
@@ -2235,6 +2352,8 @@ function toggleShelf(off){
 }
 
 let deckCached = 0;
+let fullSizeArmCap = 0;
+try { fullSizeArmCap = Number(sessionStorage.getItem('vinyl.fullsize-arm-cap')) || 0; } catch (e){}
 var stageRO = null;
 let metricCache = { h: -1, meters: 56, now: 150, badge: 0 };
 
@@ -2244,6 +2363,7 @@ function centerBrand(){
   const t = document.querySelector('.tools');
   const m = document.getElementById('meters');
   if (!b || !t || !m) return;
+  if (document.body.classList.contains('full-size-mode')){ b.style.transform = ''; return; }
   if (window.innerWidth > 560){ b.style.transform = ''; return; }
   b.style.transform = 'none';
   const tr = t.getBoundingClientRect();
@@ -2277,6 +2397,25 @@ function layout(){
   const badgeH = ab ? ab.offsetHeight + (parseFloat(getComputedStyle(ab).marginTop) || 0)
                     : metricCache.badge;
   metricCache.badge = badgeH;
+  if (document.body.classList.contains('full-size-mode')){
+    const st = getComputedStyle(el.stage);
+    const roomH = el.stage.clientHeight - (parseFloat(st.paddingTop) || 0) - (parseFloat(st.paddingBottom) || 0);
+    const giantDeck = Math.min(Math.max(100, w - 4), Math.max(100, roomH)) * 1.1;
+    document.documentElement.style.setProperty('--full-vspace', Math.max(0, (roomH - giantDeck) / 2) + 'px');
+    document.documentElement.style.setProperty('--full-side-vspace', '25px');
+    const giantPx = Math.floor(giantDeck);
+    const armSvg = document.getElementById('armSvg');
+    if (armSvg){
+      if (shelfHidden() && fullSizeArmCap > 0 && giantPx > fullSizeArmCap) armSvg.style.transform = 'scale(' + (fullSizeArmCap / giantPx).toFixed(4) + ')';
+      else armSvg.style.transform = '';
+    }
+    if (giantPx !== deckCached){
+      deckCached = giantPx;
+      document.documentElement.style.setProperty('--deck', giantPx + 'px');
+      el.deckWrap.style.height = giantPx + 'px';
+    }
+    return;
+  }
   const room = Math.max(110, mainH - metricCache.meters - badgeH - gaps);
   const d = Math.max(100, Math.min(w - 4, room));
   const px = Math.floor(d);
@@ -3173,21 +3312,79 @@ function parseLrc(txt){
 }
 /* 歌词直接覆盖到标题位：有歌词行时顶掉标题，还没唱到就继续显示标题 */
 let nowLyric = '';
+let giantLyricsBusy = false;
+let giantLyricsQueued = null;
+function syncGiantLyrics(animate){
+  const has = lyrState.lines.length > 0;
+  document.body.classList.toggle('giant-lyrics-ready', has);
+  const track = document.getElementById('giantLyricsTrack');
+  const prev4 = document.getElementById('giantLyricPrev4');
+  const prev3 = document.getElementById('giantLyricPrev3');
+  const cur = document.getElementById('giantLyricCurrent');
+  const prev2 = document.getElementById('giantLyricPrev2');
+  const prev = document.getElementById('giantLyricPrev');
+  const next = document.getElementById('giantLyricNext');
+  const next2 = document.getElementById('giantLyricNext2');
+  const next3 = document.getElementById('giantLyricNext3');
+  const next4 = document.getElementById('giantLyricNext4');
+  if (!track || !prev4 || !prev3 || !cur || !prev2 || !prev || !next || !next2 || !next3 || !next4) return;
+  const idx = lyrState.idx;
+  const curText = nowLyric || '';
+  const prev4Text = idx > 3 ? (lyrState.lines[idx - 4] || '') : '';
+  const prev3Text = idx > 2 ? (lyrState.lines[idx - 3] || '') : '';
+  const prev2Text = idx > 1 ? (lyrState.lines[idx - 2] || '') : '';
+  const prevText = idx > 0 ? (lyrState.lines[idx - 1] || '') : '';
+  const nextIndex = idx < 0 ? 0 : idx + 1;
+  const nextText = lyrState.lines[nextIndex] || '';
+  const next2Text = lyrState.lines[nextIndex + 1] || '';
+  const next3Text = lyrState.lines[nextIndex + 2] || '';
+  const next4Text = lyrState.lines[nextIndex + 3] || '';
+  const nodes = [prev4, prev3, prev2, prev, cur, next, next2, next3, next4];
+  const texts = [prev4Text, prev3Text, prev2Text, prevText, curText, nextText, next2Text, next3Text, next4Text];
+  if (giantLyricsBusy){ giantLyricsQueued = !!animate; return; }
+  const priorIdx = track.dataset.lyricIndex === undefined ? -999 : Number(track.dataset.lyricIndex);
+  const changed = cur.textContent !== curText;
+  const applyLines = function(){
+    for (let i = 0; i < nodes.length; i++) nodes[i].textContent = texts[i];
+    track.dataset.lyricIndex = String(idx);
+  };
+  if (animate && changed && curText && priorIdx >= 0 && idx === priorIdx + 1){
+    giantLyricsBusy = true;
+    track.classList.add('scrolling');
+    setTimeout(function(){
+      track.classList.add('resetting');
+      applyLines();
+      track.classList.remove('scrolling');
+      void track.offsetHeight;
+      track.classList.remove('resetting');
+      giantLyricsBusy = false;
+      if (giantLyricsQueued !== null){
+        const queuedAnimate = giantLyricsQueued;
+        giantLyricsQueued = null;
+        syncGiantLyrics(queuedAnimate);
+      }
+    }, 760);
+    return;
+  }
+  applyLines();
+}
 function setNowTitle(txt, isEmpty){
   const t = document.getElementById('nowTitle');
   if (!t) return;
-  const base = txt || '', lyr = nowLyric || '';
-  const show = lyr ? lyr : base;
-  /* 每帧都会被调：值没变就不碰 DOM，避免无谓的样式重算/重排 */
-  if (t.textContent !== show) t.textContent = show;
+  const base = txt || '';
+  const lyr = (nowLyric && !document.body.classList.contains('full-size-mode')) ? nowLyric : '';
+  const show = lyr || base;
+  /* 每帧都会调：值没变就不碰 DOM，避免无谓的样式重算/重排 */
   if (t.dataset.base !== base) t.dataset.base = base;
-  t.classList.toggle('is-lyric', !!lyr);
-  t.classList.toggle('empty', !!isEmpty && !lyr);
+  if (t.textContent !== show) t.textContent = show;
+  const wantLyric = !!lyr, wantEmpty = !!isEmpty && !lyr;
+  if (t.classList.contains('is-lyric') !== wantLyric) t.classList.toggle('is-lyric', wantLyric);
+  if (t.classList.contains('empty') !== wantEmpty) t.classList.toggle('empty', wantEmpty);
 }
 function applyNowTitle(){
   const t = document.getElementById('nowTitle');
   if (!t) return;
-  if (nowLyric){
+  if (nowLyric && !document.body.classList.contains('full-size-mode')){
     t.textContent = nowLyric;
     t.classList.add('is-lyric');
     t.classList.remove('empty');
@@ -3211,6 +3408,7 @@ function showLyric(txt){
       box.classList.remove('swap');
     }, 180);
   }
+  syncGiantLyrics(true);
 }
 async function loadLyrics(t){
   const box = document.getElementById('lyr');
@@ -3244,6 +3442,7 @@ async function loadLyrics(t){
       if (nx) nx.textContent = lines[1] || '';
     }
     box.classList.add('on');
+    syncGiantLyrics(false);
     syncLyric();
   }catch(e){}
 }
@@ -3345,6 +3544,18 @@ audio.addEventListener('ended', function(){
     return;
   }
   if (state.track + 1 < a.tracks.length) goTrack(state.track + 1);
+  else if (state.randomContinue){
+    const nextAlbum = randomAlbumPick(a.id);
+    if (nextAlbum){
+      state.playing = false; state.needle = false;
+      updateDeck(); renderNow(); updateArm();
+      if (el.cueHint) el.cueHint.classList.remove('on');
+      sleeveThenPlay(nextAlbum);
+      return;
+    }
+    state.playing = false; state.needle = false; updateDeck(); renderNow(); updateArm();
+    if (el.cueHint) el.cueHint.classList.add('on');
+  }
   else { state.playing = false; state.needle = false; updateDeck(); renderNow(); updateArm(); if (el.cueHint) el.cueHint.classList.add('on'); }
 });
 /* ================= 车机媒体控制（Media Session） =================
@@ -4862,8 +5073,10 @@ el.bklist.addEventListener('click', function(e){
    1) 架上有封面立着（选中了某张）→ 直接把它放上盘并开播；
    2) 盘上已经有片子 → 播放 / 暂停；
    3) 什么都没选 → 随机抽一张，从第一首顺序放。 */
-function randomAlbumPick(){
-  const pool = (state.albums || []).filter(function(a){ return a && a.tracks && a.tracks.length; });
+function randomAlbumPick(excludeId){
+  const all = (state.albums || []).filter(function(a){ return a && a.tracks && a.tracks.length; });
+  const otherAlbums = excludeId == null ? all : all.filter(function(a){ return a.id !== excludeId; });
+  const pool = otherAlbums.length ? otherAlbums : all;
   if (!pool.length) return null;
   let pick = pool[Math.floor(Math.random() * pool.length)];
   if (pool.length > 1 && state.lastPickId && pick.id === state.lastPickId){
@@ -4975,6 +5188,23 @@ if (el.q){
     try { el.q.focus(); } catch (err){}
   });
 }
+
+/* 随机续播：全局设置；仅在一张唱片结束时换到另一张唱片。 */
+(function initRandomContinue(){
+  try { state.randomContinue = localStorage.getItem('vinyl.randomContinue') === '1'; } catch (e){}
+  const b = document.getElementById('randomContinueSw');
+  function paint(){
+    if (b) b.setAttribute('aria-checked', state.randomContinue ? 'true' : 'false');
+  }
+  paint();
+  if (!b) return;
+  b.addEventListener('click', function(e){
+    e.preventDefault(); e.stopPropagation();
+    state.randomContinue = !state.randomContinue;
+    try { localStorage.setItem('vinyl.randomContinue', state.randomContinue ? '1' : '0'); } catch (err){}
+    paint();
+  });
+})();
 
 /* 歌词进车机：把当前歌词行写进 MediaSession 的标题 */
 (function initLyrTitle(){
@@ -5463,6 +5693,87 @@ function seekByTap(e){
       try { renderWindow(true); } catch (e){}
     }, 520);
   }
+  const fullSizeOption = document.getElementById('fullSizeOption');
+  const fullSizeSwitch = document.getElementById('fullSizeSwitch');
+  const fullSizeTools = document.querySelector('.topbar .tools');
+  let fullSizeToolsHideT = 0;
+  function resetFullSizeTools(){
+    clearTimeout(fullSizeToolsHideT); fullSizeToolsHideT = 0;
+    if (fullSizeTools) fullSizeTools.classList.remove('tools-revealed');
+  }
+  document.addEventListener('pointermove', function(e){
+    if (!fullSizeTools) return;
+    const mouseHover = window.matchMedia('(hover:hover) and (pointer:fine)').matches;
+    if (!mouseHover || !document.body.classList.contains('full-size-mode')){
+      if (fullSizeToolsHideT || fullSizeTools.classList.contains('tools-revealed')) resetFullSizeTools();
+      return;
+    }
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    const r = fullSizeTools.getBoundingClientRect(), pad = 12;
+    const inside = e.clientX >= r.left - pad && e.clientX <= r.right + pad
+      && e.clientY >= r.top - pad && e.clientY <= r.bottom + pad;
+    if (inside){
+      clearTimeout(fullSizeToolsHideT); fullSizeToolsHideT = 0;
+      fullSizeTools.classList.add('tools-revealed');
+    } else if (fullSizeTools.classList.contains('tools-revealed') && !fullSizeToolsHideT){
+      fullSizeToolsHideT = setTimeout(function(){
+        fullSizeTools.classList.remove('tools-revealed'); fullSizeToolsHideT = 0;
+      }, 5000);
+    }
+  }, { passive:true });
+  function appleFullSizeDevice(){
+    const ua = navigator.userAgent || '';
+    const platform = navigator.platform || '';
+    const ipad = /iPad/i.test(ua) || (/Macintosh/i.test(ua) && (navigator.maxTouchPoints || 0) > 1);
+    const mac = /^Mac/i.test(platform) || /Macintosh|Mac OS X/i.test(ua);
+    return mac && !ipad;
+  }
+  function isMacBrowserFullscreen(){
+    const ua = navigator.userAgent || '';
+    const platform = navigator.platform || '';
+    const mac = (/^Mac/i.test(platform) || /Macintosh|Mac OS X/i.test(ua)) && (navigator.maxTouchPoints || 0) < 2;
+    if (!mac) return false;
+    if (window.fullScreen === true) return true;
+    const s = window.screen;
+    return !!(s && s.width && s.height && Math.abs(window.outerWidth - s.width) <= 2 && Math.abs(window.outerHeight - s.height) <= 2);
+  }
+  function isDocumentFullscreen(){
+    return !!(document.fullscreenElement || document.webkitFullscreenElement || document.webkitIsFullScreen || isMacBrowserFullscreen());
+  }
+  function setFullSizeMode(on){
+    const enabled = !!on && appleFullSizeDevice() && isDocumentFullscreen();
+    document.body.classList.toggle('full-size-mode', enabled);
+    if (!enabled) resetFullSizeTools();
+    try { if (enabled) sessionStorage.setItem('vinyl.full-size', '1'); else sessionStorage.removeItem('vinyl.full-size'); } catch (e){}
+    if (fullSizeSwitch) fullSizeSwitch.setAttribute('aria-checked', enabled ? 'true' : 'false');
+    if (el.deckWrap) el.deckWrap.style.height = '';
+    deckCached = 0;
+    if (!enabled){
+      fullSizeArmCap = 0;
+      try { sessionStorage.removeItem('vinyl.fullsize-arm-cap'); } catch (e){}
+      const armSvg = document.getElementById('armSvg');
+      if (armSvg) armSvg.style.transform = '';
+    }
+    applyNowTitle();
+    syncGiantLyrics(false);
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){ try { layout(); } catch (e){} }); });
+  }
+  function syncFullSizeAvailability(){
+    const allowed = appleFullSizeDevice() && isDocumentFullscreen();
+    if (fullSizeOption) fullSizeOption.hidden = !allowed;
+    let restoreFullSize = false;
+    try { restoreFullSize = allowed && sessionStorage.getItem('vinyl.full-size') === '1'; } catch (e){}
+    if (restoreFullSize && !document.body.classList.contains('full-size-mode')){ setFullSizeMode(true); return; }
+    if (!allowed && document.body.classList.contains('full-size-mode')) setFullSizeMode(false);
+    else if (fullSizeSwitch) fullSizeSwitch.setAttribute('aria-checked', document.body.classList.contains('full-size-mode') ? 'true' : 'false');
+  }
+  if (fullSizeSwitch) fullSizeSwitch.addEventListener('click', function(){
+    setFullSizeMode(!document.body.classList.contains('full-size-mode'));
+  });
+  document.addEventListener('fullscreenchange', syncFullSizeAvailability);
+  document.addEventListener('webkitfullscreenchange', syncFullSizeAvailability);
+  window.addEventListener('resize', syncFullSizeAvailability);
+  syncFullSizeAvailability();
   function toggleFs(){
     try{
       if (!document.fullscreenElement){
@@ -5511,8 +5822,8 @@ function seekByTap(e){
   document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') fsNudge(); });
   if (fsBtn){
     fsBtn.addEventListener('click', toggleFs);
-    document.addEventListener('fullscreenchange', function(){ syncFs(true); });
-    document.addEventListener('webkitfullscreenchange', function(){ syncFs(true); });
+    document.addEventListener('fullscreenchange', function(){ syncFs(true); syncFullSizeAvailability(); });
+    document.addEventListener('webkitfullscreenchange', function(){ syncFs(true); syncFullSizeAvailability(); });
     syncFs(false);
   }
 

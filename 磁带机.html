@@ -2477,7 +2477,7 @@ html[data-client="car"] .atmos-mid img.dlbimg{width:140px}
         </div>
         <div class="setrow sub" id="crVolRow">
           <div class="setl"><b>底噪音量</b><span>底噪的强度</span></div>
-          <input class="rng" id="crVol" type="range" min="0" max="75" step="5" value="55" aria-label="底噪音量">
+          <input class="rng" id="crVol" type="range" min="1" max="50" step="1" value="40" aria-label="底噪音量">
         </div>
 <div class="setrow" id="sleepRow">
           <div class="setl"><b>睡眠定时</b><span id="sleepHint">到点淡出并暂停</span></div>
@@ -3026,8 +3026,8 @@ function ensureGraph(){
 
 /* ---- 爆豆声：用真实录音（轻柔 / 较重）循环，播放时才响 ---- */
 let crOn = false, crHiss = null, crBuf = {}, crSnd = 'soft', crLoad = {};
-let crVol = 0.55;
-try { const v = parseFloat(localStorage.getItem('vinyl.crackle.vol')); if (Number.isFinite(v)) crVol = Math.min(.75, Math.max(0, v)); } catch (e){}
+let crVol = 0.40;
+try { const v = parseFloat(localStorage.getItem('vinyl.crackle.vol')); if (Number.isFinite(v)) crVol = Math.min(.50, Math.max(.01, v)); } catch (e){}
 try { const s0 = localStorage.getItem('vinyl.crackle.sound'); if (s0 === 'heavy' || s0 === 'soft') crSnd = s0; } catch (e){}
 function crGain(){ return crVol * 0.46; }
 function crLoadBuf(name){
@@ -3664,12 +3664,13 @@ function setNowTitle(txt, isEmpty){
   const t = document.getElementById('nowTitle');
   if (!t) return;
   const base = txt || '', lyr = nowLyric || '';
-  const show = lyr ? lyr : base;
-  /* 每帧都会被调：值没变就不碰 DOM，避免无谓的样式重算/重排 */
-  if (t.textContent !== show) t.textContent = show;
+  const show = lyr || base;
+  /* 每帧都会调：值没变就不碰 DOM，避免无谓的样式重算/重排 */
   if (t.dataset.base !== base) t.dataset.base = base;
-  t.classList.toggle('is-lyric', !!lyr);
-  t.classList.toggle('empty', !!isEmpty && !lyr);
+  if (t.textContent !== show) t.textContent = show;
+  const wantLyric = !!lyr, wantEmpty = !!isEmpty && !lyr;
+  if (t.classList.contains('is-lyric') !== wantLyric) t.classList.toggle('is-lyric', wantLyric);
+  if (t.classList.contains('empty') !== wantEmpty) t.classList.toggle('empty', wantEmpty);
 }
 function applyNowTitle(){
   const t = document.getElementById('nowTitle');
@@ -5705,7 +5706,7 @@ function seekByTap(e){
   }
   if (crVolEl){
     crVolEl.addEventListener('input', function(){
-      crVol = Math.min(.75, Math.max(0, parseFloat(crVolEl.value) / 100));
+    crVol = Math.min(.50, Math.max(.01, parseFloat(crVolEl.value) / 100));
       try { localStorage.setItem('vinyl.crackle.vol', String(crVol)); } catch (e){}
       if (crHiss){
         try {
@@ -6109,11 +6110,46 @@ document.addEventListener('visibilitychange', function(){ if (document.hidden) s
     mounted: false, album: null, tracks: [], side: 'A', ti: 0,
     sideDur: 0, spin: { L: 0, R: 0 }, lamp: 0, tapeSkin: 'sticker',
     preview: null, previewWant: 0,
-    last: 0, skinTick: 0
+    last: 0, skinTick: 0, stickerArt: false, stickerArtSide: 'right'
   };
 
 
 let __blurCache = { k: '', cv: null };
+let __coverEdgeCache = { src: '', colors: null };
+function coverEdgeColors(img, fallback) {
+  const src = img && img.src || '';
+  if (src && __coverEdgeCache.src === src && __coverEdgeCache.colors) return __coverEdgeCache.colors;
+  let colors = null;
+  if (img) {
+    try {
+      const c = document.createElement('canvas'); c.width = c.height = 24;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      const scale = Math.max(24 / img.width, 24 / img.height);
+      const dw = img.width * scale, dh = img.height * scale;
+      g.drawImage(img, (24 - dw) / 2, (24 - dh) / 2, dw, dh);
+      const d = g.getImageData(0, 0, 24, 24).data;
+      function avg(x0, x1) {
+        let r = 0, gg = 0, b = 0, n = 0;
+        for (let y = 0; y < 24; y++) for (let x = x0; x < x1; x++) {
+          const i = (y * 24 + x) * 4;
+          if (d[i + 3] < 40) continue;
+          r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++;
+        }
+        return n ? [Math.round(r / n), Math.round(gg / n), Math.round(b / n)] : null;
+      }
+      colors = [avg(1, 5), avg(19, 23)];
+      if (!colors[0] || !colors[1]) colors = null;
+    } catch (e) { colors = null; }
+  }
+  if (!colors) {
+    const m = String(fallback || '').match(/#([0-9a-f]{6})/i);
+    const h = m ? m[1] : '918779';
+    const v = [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+    colors = [v, v];
+  }
+  if (src) __coverEdgeCache = { src: src, colors: colors };
+  return colors;
+}
 function blurCover(w, h, img, blurPx, tint) {
   const k = Math.round(w) + 'x' + Math.round(h) + '|' + blurPx.toFixed(1) + '|' + (img ? img.src : '') + '|' + tint;
   if (__blurCache.k === k && __blurCache.cv) return __blurCache.cv;
@@ -6373,11 +6409,38 @@ function paintTapeBody(ctx, bx, by, bw, bh, rad) {
     rr(ctx, lx2, ly2, lw2, lh2, lrad); ctx.fillStyle = '#efe8d4'; ctx.fill();
     ctx.restore();
 
-    // 2. 标签底图＝专辑封面高斯模糊
+    // 2. 标签底图：默认使用模糊封面；图案开启时使用清晰缩略封面和取色渐变。
     ctx.save();
     rr(ctx, lx2, ly2, lw2, lh2, lrad); ctx.clip();
-    const bc = blurCover(lw2, lh2, jcImg, Math.max(2.5, bw * .018), tint);
-    ctx.drawImage(bc, lx2, ly2, lw2, lh2);
+    if (tp.stickerArt && jcImg) {
+      const edge = coverEdgeColors(jcImg, tint);
+      const rgb = function (c, a) { return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')'; };
+      const artLeft = tp.stickerArtSide === 'left';
+      const bg = ctx.createLinearGradient(lx2, 0, lx2 + lw2, 0);
+      bg.addColorStop(0, rgb(edge[0], 1)); bg.addColorStop(.52, rgb(artLeft ? edge[1] : edge[0], 1));
+      bg.addColorStop(1, rgb(edge[1], 1));
+      ctx.fillStyle = bg; ctx.fillRect(lx2, ly2, lw2, lh2);
+      const artW = lw2 * .51, artX = artLeft ? lx2 : lx2 + lw2 - artW;
+      const scale = Math.max(artW / jcImg.width, lh2 / jcImg.height);
+      const dw = jcImg.width * scale, dh = jcImg.height * scale;
+      ctx.drawImage(jcImg, artX + (artW - dw) / 2, ly2 + (lh2 - dh) / 2, dw, dh);
+      const fadeW = lw2 * .24;
+      const fade = artLeft
+        ? ctx.createLinearGradient(artX + artW - fadeW, 0, artX + artW, 0)
+        : ctx.createLinearGradient(artX, 0, artX + fadeW, 0);
+      if (artLeft) {
+        fade.addColorStop(0, rgb(edge[1], 0)); fade.addColorStop(.62, rgb(edge[1], .84));
+        fade.addColorStop(1, rgb(edge[1], .98));
+        ctx.fillStyle = fade; ctx.fillRect(artX + artW - fadeW, ly2, fadeW, lh2);
+      } else {
+        fade.addColorStop(0, rgb(edge[0], .98)); fade.addColorStop(.38, rgb(edge[1], .84));
+        fade.addColorStop(1, rgb(edge[1], 0));
+        ctx.fillStyle = fade; ctx.fillRect(artX, ly2, fadeW, lh2);
+      }
+    } else {
+      const bc = blurCover(lw2, lh2, jcImg, Math.max(2.5, bw * .018), tint);
+      ctx.drawImage(bc, lx2, ly2, lw2, lh2);
+    }
     // 纸感覆层
     ctx.fillStyle = 'rgba(247,241,226,.20)';
     ctx.fillRect(lx2, ly2, lw2, lh2);
@@ -6429,8 +6492,18 @@ function paintTapeBody(ctx, bx, by, bw, bh, rad) {
     const gapRw = (lx2 + lw2) - (hx + hw2);
     tapeSideBox(ctx, gapLc, cy0, sb, '#2b2317', 'rgba(30,22,12,.52)', 'rgba(30,24,14,.10)');
     tapeRightMark(ctx, gapRc, cy0, gapRw, sb, '#2b2317', '#efe8d4');
+    const stickerTextSide = tp.stickerArt && jcImg ? (tp.stickerArtSide === 'left' ? 'right' : 'left') : '';
     tapeText(ctx, lx2 + bw * .016, ly2 + bh * .006, lw2 - bw * .032, bh * .112,
-             '#231c13', '#322817');
+             '#231c13', '#322817', stickerTextSide);
+    const copyright = String((tp.album && tp.album.copyright) || '').replace(/\s+/g, ' ').trim();
+    if (copyright) {
+      ctx.save();
+      ctx.font = '500 ' + Math.max(9, bw * .018) + 'px ui-sans-serif,system-ui,sans-serif';
+      ctx.fillStyle = 'rgba(35,28,19,.66)';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+      ctx.fillText(copyright, lx2 + lw2 - bw * .018, ly2 + lh2 - bh * .018, lw2 * .88);
+      ctx.restore();
+    }
   } else {
     /* 直印＝透明彩壳：这里只铺 interior 暗底（卷盘/拉线由 mech 画），
        半透明封面色壳面 + 印刷文字在 mech 之后由 paintTapePrint 覆上 */
@@ -6482,6 +6555,15 @@ function paintTapePrint(ctx, bx, by, bw, bh, rad) {
   tapeRightMark(ctx, gapRc2, cyP, gapRw2, sb2, 'rgba(248,246,240,.92)', 'rgba(18,14,10,.92)');
   tapeText(ctx, lx2 + bw * .016, ly2 + bh * .006, lw2 - bw * .032, bh * .112,
            'rgba(248,246,240,.96)', 'rgba(248,246,240,.78)');
+  const copyright = String((tp.album && tp.album.copyright) || '').replace(/\s+/g, ' ').trim();
+  if (copyright) {
+    ctx.save();
+    ctx.font = '500 ' + Math.max(9, bw * .018) + 'px ui-sans-serif,system-ui,sans-serif';
+    ctx.fillStyle = 'rgba(248,246,240,.72)';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText(copyright, lx2 + lw2 - bw * .018, ly2 + lh2 - bh * .018, lw2 * .88);
+    ctx.restore();
+  }
 }
 
 /* 杜比判定：层里 syncBadge 写 tp.dolbyOn；回退读专辑 atmos 标记 */
@@ -6860,9 +6942,11 @@ function paintShell(ctx, bx, by, bw, bh, rad) {
   ctx.lineWidth = Math.max(.7, bw * .0028); ctx.stroke();
 }
 
-function tapeText(ctx, x, y, w, h, c1, c2) {
+function tapeText(ctx, x, y, w, h, c1, c2, side) {
   const ar = (tp.album && tp.album.artist) || '';
   const al = (tp.album && tp.album.title) || '';
+  if (side === 'right') { x += w * .51; w *= .47; }
+  else if (side === 'left') w *= .47;
   const fs = Math.max(6, h * .36);
   ctx.save();
   ctx.textBaseline = 'middle';
@@ -7645,6 +7729,8 @@ function fit(cv) {
     tp.subPin = null;
     loadJc(a);
     tp.tapeSkin = localStorage.getItem('vinyl.tape.skin') || 'sticker';
+    tp.stickerArt = localStorage.getItem('vinyl.tape.stickerArt') === '1';
+    tp.stickerArtSide = localStorage.getItem('vinyl.tape.stickerArtSide') || 'right';
     tp.spin.L = tp.spin.R = 0;
     tp.revR = null;
     /* 新磁带从自己的时间位置算卷径，不能继承上一盒的平滑半径/播放进度。 */
@@ -8686,11 +8772,54 @@ function hookNowArt() {
     if (skin0 === 'color') skin0 = 'sticker';
     tp.tapeSkin = skin0;
     sel.value = skin0;
+    const artRow = document.createElement('div');
+    artRow.className = 'setrow sub';
+    artRow.innerHTML = '<div class="setl"><b>贴纸图案</b><span>清晰缩略封面与两侧取色渐变</span></div>'
+      + '<button class="sw" id="tkArtSw" role="switch" aria-checked="false" aria-disabled="false" aria-label="贴纸图案"><i></i></button>';
+    row.parentNode.insertBefore(artRow, row.nextSibling);
+    const artSw = artRow.querySelector('#tkArtSw');
+    let artOn = false;
+    try { artOn = localStorage.getItem('vinyl.tape.stickerArt') === '1'; } catch (e) {}
+    tp.stickerArt = artOn;
+    function syncArtRow() {
+      const active = tp.tapeSkin === 'sticker';
+      artRow.classList.toggle('off', !active);
+      artSw.setAttribute('aria-disabled', active ? 'false' : 'true');
+      artSw.setAttribute('aria-checked', artOn ? 'true' : 'false');
+    }
+    syncArtRow();
+    artSw.addEventListener('click', function (e) {
+      e.preventDefault(); e.stopPropagation();
+      if (tp.tapeSkin !== 'sticker') return;
+      artOn = !artOn; tp.stickerArt = artOn;
+      try { localStorage.setItem('vinyl.tape.stickerArt', artOn ? '1' : '0'); } catch (err) {}
+      syncArtRow(); syncSideRow(); paintBay();
+    });
+    const sideRow = document.createElement('div');
+    sideRow.className = 'setrow sub';
+    sideRow.innerHTML = '<div class="setl"><b>封面位置</b><span>选择贴纸缩略图所在一侧</span></div>'
+      + '<select class="sel" id="tkArtSideSel"><option value="left">左侧</option><option value="right">右侧</option></select>';
+    artRow.parentNode.insertBefore(sideRow, artRow.nextSibling);
+    const sideSel = sideRow.querySelector('#tkArtSideSel');
+    try { tp.stickerArtSide = localStorage.getItem('vinyl.tape.stickerArtSide') || 'right'; } catch (e) { tp.stickerArtSide = 'right'; }
+    sideSel.value = tp.stickerArtSide;
+    function syncSideRow() {
+      const active = tp.tapeSkin === 'sticker' && artOn;
+      sideRow.classList.toggle('off', !active);
+      sideSel.disabled = !active;
+    }
+    syncSideRow();
+    sideSel.addEventListener('change', function () {
+      tp.stickerArtSide = sideSel.value === 'left' ? 'left' : 'right';
+      try { localStorage.setItem('vinyl.tape.stickerArtSide', tp.stickerArtSide); } catch (e) {}
+      paintBay();
+    });
     sel.addEventListener('change', function () {
       tp.tapeSkin = sel.value;
       try { localStorage.setItem('vinyl.tape.skin', tp.tapeSkin); } catch (e) {}
       const p = $('#pop');
       if (p) p.dataset.kind = tp.tapeSkin;
+      syncArtRow(); syncSideRow(); paintBay();
     });
 
     const volRow = document.getElementById('crVolRow');

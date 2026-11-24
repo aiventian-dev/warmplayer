@@ -105,7 +105,7 @@ TRANS_DIR = os.path.join(CACHE_DIR, "trans")
 SETTINGS_FILE = os.path.join(DATA_ROOT, "settings.json")
 SETTINGS = {"trans": False}   # 默认不转码，交给浏览器原生解码
 DEFAULT_FOLDER_PWD = "1987"   # 远程访问时进入「音乐目录」的密码，可在 settings.json 的 folder_pwd 改
-TAG_VER = "v3"   # 缓存版本：加 codec 后让旧缓存失效一次
+TAG_VER = "v4"   # 缓存版本：加入音频文件内的版权标签
 PAGE_FILE = os.path.join(os.environ.get("WARMPLAYER_PAGES") or APP_DIR, "唱片机.html")
 TAPE_FILE = os.path.join(os.environ.get("WARMPLAYER_PAGES") or APP_DIR, "磁带机.html")
 
@@ -141,6 +141,7 @@ HOLDERS = {}          # album_id -> 含封面的代表文件路径（按需抽�
 ANYCOVER = {}         # album_id -> 任意一首的路径（扫描没到时按需抽封面的兜底）
 SCAN_GUARD = threading.Lock()   # 扫描单飞：同一时刻只允许一个 do_scan
 COVER_LOCK = threading.Lock()   # 按需抽封面串行，避免同张专辑重复抽
+METER_SLOTS = threading.BoundedSemaphore(2)  # 限制频谱解码并发
 
 
 # ---------------------------------------------------------------- 基础工具
@@ -246,6 +247,8 @@ def read_id3v2(f, size):
             out["track"] = int(re.split(r"[/\s]", num)[0]) if re.split(r"[/\s]", num)[0].isdigit() else 0
         elif key in ("TCON", "TCO"):
             out["genre"] = first_line(decode_text(data[1:], data[0])).strip("()")
+        elif key in ("TCOP", "TCR"):
+            out["copyright"] = first_line(decode_text(data[1:], data[0]))
         elif key == "APIC":
             enc = data[0]
             if enc in (1, 2):
@@ -429,6 +432,8 @@ def vorbis_to_tags(vc):
         t["track"] = int(num) if num.isdigit() else 0
     if vc.get("GENRE"):
         t["genre"] = vc["GENRE"]
+    if vc.get("COPYRIGHT") or vc.get("COPYRIGHTS"):
+        t["copyright"] = vc.get("COPYRIGHT") or vc.get("COPYRIGHTS")
     return t
 
 
@@ -585,6 +590,8 @@ def read_mp4(f, size):
                 tags["year"] = payload.decode("utf-8", "ignore").strip()[:4]
             elif key == b"\xa9gen":
                 tags["genre"] = payload.decode("utf-8", "ignore").strip()
+            elif key in (b"\xa9cpy", b"cprt"):
+                tags["copyright"] = payload.decode("utf-8", "ignore").strip("\x00 \t\r\n")
             elif key == b"trkn" and len(payload) >= 6:
                 tags["track"] = int.from_bytes(payload[2:4], "big")
             elif key == b"covr" and cover is None:
@@ -641,7 +648,7 @@ def read_wav(f, size):
         elif cid == b"LIST":
             start = f.tell()
             data = f.read(min(clen, 4096))
-            for k, field in ((b"INAM", "title"), (b"IART", "artist"), (b"IPRD", "album"), (b"ICRD", "year")):
+            for k, field in ((b"INAM", "title"), (b"IART", "artist"), (b"IPRD", "album"), (b"ICRD", "year"), (b"ICOP", "copyright")):
                 i = data.find(k)
                 if i >= 0:
                     ln = int.from_bytes(data[i + 4:i + 8], "little")
@@ -704,7 +711,7 @@ def parse_vorbis_comment_from(data):
 def read_tags(path):
     """返回 {"tags":{...}, "hasCover":bool}，并单独取一次封面用 read_cover"""
     ext = os.path.splitext(path)[1].lower()
-    out = {"title": "", "artist": "", "albumartist": "", "album": "", "year": "", "track": 0, "genre": "", "dur": 0.0}
+    out = {"title": "", "artist": "", "albumartist": "", "album": "", "year": "", "track": 0, "genre": "", "copyright": "", "dur": 0.0}
     cover = None
     try:
         size = os.path.getsize(path)
@@ -1844,13 +1851,15 @@ def build_albums(paths, fast=False):
         t = e["tags"]
         album, artist, key = album_key(p)
 
-        g = groups.setdefault(key, {"album": album, "artist": artist, "year": "", "genre": "", "paths": []})
+        g = groups.setdefault(key, {"album": album, "artist": artist, "year": "", "genre": "", "copyright": "", "paths": []})
         g["paths"].append(p)
         if not g["year"] and t.get("year"):
             y = re.search(r"(19|20)\d{2}", str(t.get("year")))
             g["year"] = y.group(0) if y else ""
         if not g["genre"] and t.get("genre"):
             g["genre"] = t["genre"]
+        if not g["copyright"] and t.get("copyright"):
+            g["copyright"] = str(t["copyright"]).replace("\x00", " ").strip()
     albums = []
     for key, g in groups.items():
         files = sorted(g["paths"], key=lambda p: (TAGS[p]["tags"].get("track") or 999, os.path.basename(p).lower()))
@@ -1893,7 +1902,7 @@ def build_albums(paths, fast=False):
                 TINTS[aid] = tint
         albums.append({
             "id": aid, "artist": g["artist"], "title": g["album"], "year": g["year"],
-            "genre": g["genre"], "count": len(tracks), "total": round(total, 1),
+            "genre": g["genre"], "copyright": g["copyright"], "count": len(tracks), "total": round(total, 1),
             "cover": bool(cover), "tint": tint or "",
             "ct": (int(os.path.getmtime(cover)) if cover and os.path.exists(cover) else 0),
             "ver": short_hash(key + str(len(tracks)) + str(int(total)), 6),
@@ -2245,16 +2254,22 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
                     left -= len(chunk)
             return
-        body = b""
-        with open(path, "rb") as f:
-            body = f.read()
         self.send_response(200)
         self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", str(size))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Cache-Control", "public, max-age=86400" if cache else "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        # Stream the file in bounded chunks; do not hold an entire album in RAM.
+        try:
+            with open(path, "rb") as f:
+                while True:
+                    chunk = f.read(262144)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _serve_dolby_mp3(self, fp):
         out = dolby_mp3_target(fp)
@@ -2307,6 +2322,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(b"0\r\n\r\n")
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
+            # A client that seeks, changes track, or closes its tab must not
+            # leave the transcode stream handler spinning for up to 15 minutes.
             pass
 
     # ---- 路由
@@ -2320,6 +2337,9 @@ class Handler(BaseHTTPRequestHandler):
             import numpy as np
         except Exception:
             self._err("没有 numpy", 503)
+            return
+        if not METER_SLOTS.acquire(blocking=False):
+            self._err("频谱服务繁忙，请稍后重试", 503)
             return
         SR, HOP, WIN = 22050, 735, 2048          # 30 帧/秒
         ratio = (16000.0 / 20.0) ** (1.0 / 21.0)
@@ -2349,6 +2369,7 @@ class Handler(BaseHTTPRequestHandler):
                  "-f", "f32le", "-acodec", "pcm_f32le", "-"],
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
         except Exception as e:
+            METER_SLOTS.release()
             log("频谱启动失败：%r" % (e,))
             return
         win = np.hanning(WIN).astype(np.float32)
@@ -2452,6 +2473,7 @@ class Handler(BaseHTTPRequestHandler):
                 proc.wait(timeout=1)
             except Exception:
                 pass
+            METER_SLOTS.release()
 
     def do_GET(self):
         u = urllib.parse.urlparse(self.path)
@@ -2822,7 +2844,7 @@ def _raise_fd_limit():
 
 def _single_instance_lock():
     # flock 由内核在进程死亡时自动释放，无陈旧锁问题；持住文件对象防止 GC 闭锁。
-    # v0.83.1：锁跟随数据目录（DATA_ROOT），不再固定 ~/.warmplayer —— 不同目录的副本
+    # 锁跟随数据目录（DATA_ROOT），不再固定 ~/.warmplayer —— 不同目录的副本
     # （例如两份对照版本）各有各的锁，可以同时跑，端口各自自动避让；同一数据目录仍只
     # 允许一份实例，防止重复扫描 / 抢 cache、settings、转码临时目录。
     import fcntl
