@@ -2640,6 +2640,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"trans": bool(SETTINGS.get("trans")), "ffmpeg": bool(FFMPEG),
                         "dolby": SETTINGS.get("dolby", "auto")})
             return
+        if p in ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"):
+            # 主屏幕图标：存到桌面后用它做 App 图标
+            self._send_file(os.path.join(os.path.dirname(PAGE_FILE), "apple-touch-icon.png"), "image/png", cache=True)
+            return
         if p == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
