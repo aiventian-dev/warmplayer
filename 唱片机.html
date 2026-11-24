@@ -1414,19 +1414,15 @@ body.full-size-mode .pill-ico{width:48px}
 body.full-size-mode .pill-ico svg{width:18px;height:18px}
 .giant-lyrics{display:none;grid-column:2;grid-row:4;align-self:stretch;justify-self:end;width:calc(70% + 100px);margin-right:50px;min-width:0;min-height:0;max-height:100%;
   overflow:hidden;text-align:left;color:var(--ink);pointer-events:none}
-body.full-size-mode.giant-lyrics-ready .giant-lyrics{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:clamp(9px,calc(.65vh + 5px),15px)}
+body.full-size-mode.giant-lyrics-ready .giant-lyrics{display:block;position:relative;overflow:hidden;font-size:clamp(21px,1.9vw,33px);max-height:calc(100% - 3.56em)}
 body.full-size-mode .meter-slot,body.full-size-mode .giant-lyrics,body.full-size-mode .now{position:relative;z-index:1}
 body.full-size-mode .arm-svg{transform-origin:94.67% 11.78%;transition:transform .24s ease}
 .full-size-mode .atmos-mid{flex:0 0 auto;white-space:nowrap;display:flex!important}
 .full-size-mode .atmos-mid img{display:block;max-width:none}
 .giant-lyrics{mask-image:linear-gradient(to bottom,transparent 0%,#000 12%,#000 88%,transparent 100%);
   -webkit-mask-image:linear-gradient(to bottom,transparent 0%,#000 12%,#000 88%,transparent 100%)}
-.giant-lyrics-track{display:flex;flex-direction:column;gap:clamp(9px,calc(.65vh + 5px),15px);width:100%;will-change:transform;
-  transition:transform .72s cubic-bezier(.22,.78,.18,1)}
-.giant-lyrics-track.scrolling{transform:translateY(calc(-1.4em - clamp(9px,calc(.65vh + 5px),15px)))}
-.giant-lyrics-track.resetting{transition:none!important}
-.giant-lyric{display:block;flex:0 0 1.4em;width:100%;max-width:100%;height:1.4em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  line-height:1.4;letter-spacing:.02em;text-align:left;font-size:clamp(21px,1.9vw,33px);font-weight:700;opacity:.42;filter:blur(1.6px)}
+.giant-lyrics-track{position:absolute;left:0;top:0;display:flex;flex-direction:column;gap:clamp(9px,calc(.65vh + 5px),15px);width:100%;will-change:transform;transition:transform .26s cubic-bezier(.3,.72,.2,1)}
+.giant-lyric{display:block;width:100%;max-width:100%;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.4;letter-spacing:.02em;text-align:left;font-weight:700;opacity:.42;filter:blur(1.6px)}
 .giant-lyric.current{opacity:.98;filter:none}
 body.full-size-mode .stage::before{display:none}
 body.full-size-mode:not(.giant-lyrics-ready) .stage{
@@ -1458,7 +1454,7 @@ body.full-size-mode:not(.giant-lyrics-ready) .stage{
   body.full-size-mode .pill-play .cap{display:none}
   body.full-size-mode .pill-ico{width:38px}
   body.full-size-mode .pill-ico svg{width:15px;height:15px}
-  body.full-size-mode .giant-lyric{font-size:clamp(15px,2.7vw,22px)}
+  body.full-size-mode .giant-lyrics{font-size:clamp(15px,2.7vw,22px)}
 }
 
 @media (prefers-reduced-motion:reduce){
@@ -2060,15 +2056,6 @@ html[data-client="car"] .shelf-foot{padding-bottom:calc(10px + var(--safe-bottom
 
       <div class="giant-lyrics" id="giantLyrics" aria-live="off">
         <div class="giant-lyrics-track" id="giantLyricsTrack">
-        <div class="giant-lyric prev4" id="giantLyricPrev4"></div>
-        <div class="giant-lyric prev3" id="giantLyricPrev3"></div>
-        <div class="giant-lyric prev2" id="giantLyricPrev2"></div>
-        <div class="giant-lyric prev" id="giantLyricPrev"></div>
-        <div class="giant-lyric current" id="giantLyricCurrent"></div>
-        <div class="giant-lyric next" id="giantLyricNext"></div>
-        <div class="giant-lyric next2" id="giantLyricNext2"></div>
-        <div class="giant-lyric next3" id="giantLyricNext3"></div>
-        <div class="giant-lyric next4" id="giantLyricNext4"></div>
         </div>
       </div>
 
@@ -3315,62 +3302,72 @@ function parseLrc(txt){
 }
 /* 歌词直接覆盖到标题位：有歌词行时顶掉标题，还没唱到就继续显示标题 */
 let nowLyric = '';
-let giantLyricsBusy = false;
-let giantLyricsQueued = null;
-function syncGiantLyrics(animate){
+let giantKey = '', giantH = [], giantGap = 0, giantBoxH = 0, giantCur = -2, giantY = null;
+
+function syncGiantLyrics(){
   const has = lyrState.lines.length > 0;
   document.body.classList.toggle('giant-lyrics-ready', has);
-  const track = document.getElementById('giantLyricsTrack');
-  const prev4 = document.getElementById('giantLyricPrev4');
-  const prev3 = document.getElementById('giantLyricPrev3');
-  const cur = document.getElementById('giantLyricCurrent');
-  const prev2 = document.getElementById('giantLyricPrev2');
-  const prev = document.getElementById('giantLyricPrev');
-  const next = document.getElementById('giantLyricNext');
-  const next2 = document.getElementById('giantLyricNext2');
-  const next3 = document.getElementById('giantLyricNext3');
-  const next4 = document.getElementById('giantLyricNext4');
-  if (!track || !prev4 || !prev3 || !cur || !prev2 || !prev || !next || !next2 || !next3 || !next4) return;
-  const idx = lyrState.idx;
-  const curText = nowLyric || '';
-  const prev4Text = idx > 3 ? (lyrState.lines[idx - 4] || '') : '';
-  const prev3Text = idx > 2 ? (lyrState.lines[idx - 3] || '') : '';
-  const prev2Text = idx > 1 ? (lyrState.lines[idx - 2] || '') : '';
-  const prevText = idx > 0 ? (lyrState.lines[idx - 1] || '') : '';
-  const nextIndex = idx < 0 ? 0 : idx + 1;
-  const nextText = lyrState.lines[nextIndex] || '';
-  const next2Text = lyrState.lines[nextIndex + 1] || '';
-  const next3Text = lyrState.lines[nextIndex + 2] || '';
-  const next4Text = lyrState.lines[nextIndex + 3] || '';
-  const nodes = [prev4, prev3, prev2, prev, cur, next, next2, next3, next4];
-  const texts = [prev4Text, prev3Text, prev2Text, prevText, curText, nextText, next2Text, next3Text, next4Text];
-  if (giantLyricsBusy){ giantLyricsQueued = !!animate; return; }
-  const priorIdx = track.dataset.lyricIndex === undefined ? -999 : Number(track.dataset.lyricIndex);
-  const changed = cur.textContent !== curText;
-  const applyLines = function(){
-    for (let i = 0; i < nodes.length; i++) nodes[i].textContent = texts[i];
-    track.dataset.lyricIndex = String(idx);
-  };
-  if (animate && changed && curText && priorIdx >= 0 && idx === priorIdx + 1){
-    giantLyricsBusy = true;
-    track.classList.add('scrolling');
-    setTimeout(function(){
-      track.classList.add('resetting');
-      applyLines();
-      track.classList.remove('scrolling');
-      void track.offsetHeight;
-      track.classList.remove('resetting');
-      giantLyricsBusy = false;
-      if (giantLyricsQueued !== null){
-        const queuedAnimate = giantLyricsQueued;
-        giantLyricsQueued = null;
-        syncGiantLyrics(queuedAnimate);
-      }
-    }, 760);
-    return;
-  }
-  applyLines();
+  giantKey = ''; giantY = null;
+  giantFrame();
 }
+/* 全尺寸巨型歌词：整首歌的行一次性建好，位置按「当前行 + 行内进度」逐帧连续推进。
+   高亮与位移在同一帧计算，不存在「先滚到位、再补高亮」的滞后。 */
+function giantFrame(){
+  if (!lyrState.lines.length) return;
+  if (!document.body.classList.contains('full-size-mode')) return;
+  const track = document.getElementById('giantLyricsTrack');
+  const box = document.getElementById('giantLyrics');
+  if (!track || !box) return;
+  const bw = box.clientWidth, bh = box.clientHeight;
+  const fs = getComputedStyle(box).fontSize;
+  const key = lyrState.lines.length + '|' + bw + 'x' + bh + '|' + fs + '|' + (lyrState.lines[0] || '');
+  if (key !== giantKey){
+    giantKey = key;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < lyrState.lines.length; i++){
+      const d = document.createElement('div');
+      d.className = 'giant-lyric';
+      d.textContent = lyrState.lines[i] || '\u00a0';
+      frag.appendChild(d);
+    }
+    track.innerHTML = '';
+    track.appendChild(frag);
+    giantCur = -2; giantY = null;
+    const cs = getComputedStyle(track);
+    giantGap = parseFloat(cs.rowGap || cs.gap || '0') || 0;
+    giantBoxH = bh;
+    giantH = [];
+    for (let i = 0; i < track.children.length; i++) giantH.push(track.children[i].offsetHeight || 0);
+  }
+  const idx = lyrState.idx;
+  const kids = track.children;
+  if (idx !== giantCur){
+    if (giantCur >= 0 && kids[giantCur]) kids[giantCur].classList.remove('current');
+    if (idx >= 0 && kids[idx]) kids[idx].classList.add('current');
+    giantCur = idx;
+  }
+  const i0 = idx < 0 ? 0 : Math.min(idx, giantH.length - 1);
+  let acc = 0;
+  for (let k = 0; k < i0; k++) acc += giantH[k] + giantGap;
+  const h = giantH[i0] || 0;
+  /* 只按「当前句」跳一格，不在句内连续推进：每唱一句滚一下 */
+  let y = giantBoxH / 2 - (acc + h / 2);
+  if (giantY === null || Math.abs(y - giantY) > 0.05){
+    giantY = y;
+    track.style.transform = 'translateY(' + y.toFixed(2) + 'px)';
+  }
+}
+window.__giantDebug = function(lines, idx){
+  lyrState.lrc = true;
+  lyrState.lines = (lines || []).slice();
+  lyrState.times = lyrState.lines.map(function(_, i){ return i * 5; });
+  lyrState.idx = -1;
+  syncGiantLyrics();
+  lyrState.idx = (idx == null ? 0 : idx);
+  giantFrame();
+  return { n: lyrState.lines.length, idx: lyrState.idx, idxShown: giantCur, h: giantH.slice(0,4), gap: giantGap, y: giantY, boxH: giantBoxH };
+};
+
 function setNowTitle(txt, isEmpty){
   const t = document.getElementById('nowTitle');
   if (!t) return;
@@ -4493,6 +4490,7 @@ function loop(){
   /* 后台时由 Worker/Worklet 单独驱动；不要从后台驱动里再排队 RAF。 */
   if (state.mounted && (state.playing || state.scrub)) renderNow();
   if (state.playing || state.scrub) updateArm();
+  giantFrame();   /* 巨型歌词：位移与高亮同帧推进 */
   if (!document.hidden) requestAnimationFrame(loop);
 }
 
