@@ -1540,6 +1540,13 @@ body[data-theme="metal"]{--sp-on:#d9dce0;--sp-off:#4b4f55}
   gap:10px;
   font:500 calc(var(--deck,600px)*.0138)/1 var(--ui,"Inter",sans-serif);
   letter-spacing:.22em;color:rgba(255,255,255,.34);text-transform:uppercase}
+/* 空带仓状态：铭牌组（aiwa + AUTO REVERSE）直接坐在托盘正中，不再占带仓下方 */
+.cd-well .cd-mark{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  width:auto;padding:0;gap:9px;z-index:2;pointer-events:none;
+  transition:opacity .22s ease}
+.cd-well .cd-mark .cd-logo{width:min(34%,170px)}
+.cd-well .cd-mark .cd-rev{font-size:clamp(14px,4.2vw,18px)}
+#deck.has-pop .cd-well .cd-mark,#deck.has-disc .cd-well .cd-mark,#deck.put-on .cd-well .cd-mark{opacity:0}
 /* aiwa 字标轮廓：单色（mask 取形、background 上色），随面板/主题自适应 */
 .cd-mark .cd-logo{display:block;width:calc(var(--deck,600px)*.150);aspect-ratio:924/144;
   background:rgba(255,255,255,.55);
@@ -8059,10 +8066,10 @@ function fit(cv) {
     }
     const wrap = document.createElement('div');
     wrap.className = 'cdeck';
-    wrap.innerHTML = '<div class="cd-well"><canvas id="bayCv"></canvas></div>'
+    wrap.innerHTML = '<div class="cd-well"><canvas id="bayCv"></canvas>'
       + '<div class="cd-mark"><span class="cd-logo" role="img" aria-label="aiwa"></span>'
       + '<span class="cd-rev" role="img" aria-label="AUTO REVERSE"><svg viewBox="0 0 12 14" aria-hidden="true"><path d="M10 1.5 2.2 7l7.8 5.5z"/></svg><span>AUTO REVERSE</span><svg viewBox="0 0 12 14" aria-hidden="true"><path d="M2 1.5 9.8 7 2 12.5z"/></svg></span>'
-      + '</div>';
+      + '</div></div>';
     deck.appendChild(wrap);
   }
 
@@ -8421,6 +8428,14 @@ function hookNowArt() {
       var deck = document.getElementById('deck'), mark = document.querySelector('.cd-mark'),
           well = document.querySelector('.cd-well'), now = document.querySelector('.now');
       if (!deck || !mark || !well || !now) return;
+      /* 铭牌已移入带仓正中：不再参与「磁带底 ↔ 歌词顶」定位，带仓回到自然居中 */
+      if (mark.parentElement && mark.parentElement.classList.contains('cd-well')) {
+        var cd0 = document.querySelector('.cdeck');
+        if (cd0) { cd0.style.justifyContent = ''; }
+        well.style.marginTop = ''; well.style.marginBottom = '';
+        mark.style.gap = ''; mark.style.marginTop = ''; mark.style.paddingTop = '';
+        return;
+      }
       tp.markAt = performance.now();     /* RO 用这个时刻认领「自己写的」，别自激 */
       var wr = well.getBoundingClientRect(), mr = mark.getBoundingClientRect(), nr = now.getBoundingClientRect();
       var G0 = nr.top - wr.bottom; if (G0 <= 0) return;
@@ -8574,6 +8589,17 @@ function hookNowArt() {
     if (ej) {
       const want = deckEl.classList.contains('has-disc') || deckEl.classList.contains('has-pop');
       if (ej.classList.contains('on') !== want) ej.classList.toggle('on', want);
+    }
+    { /* 空带仓铭牌：一旦上盘/立盒就收起，取走后回到托盘正中 */
+      const mkE = document.querySelector('.cd-well .cd-mark');
+      if (mkE) {
+        const pE = document.getElementById('pop');
+        const wantHide = tp.mounted || deckEl.classList.contains('has-pop')
+          || deckEl.classList.contains('put-on') || deckEl.classList.contains('has-disc')
+          || (!!pE && pE.dataset.placed === '1');
+        const v = wantHide ? '0' : '';
+        if (mkE.style.opacity !== v) mkE.style.opacity = v;
+      }
     }
     if (tp.subPin && Date.now() < tp.subPin.until) {
       const sb = $('#nowSub'), tt2 = $('#nowTitle');
