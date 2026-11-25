@@ -38,9 +38,54 @@ final class ServerManager {
         return ok
     }
 
+    /// 某端口当前的真实监听者（pid + 监听地址），用来判断"是不是只绑了回环"
+    func listenAddrs(_ p: Int) -> [(pid: Int32, addr: String)] {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        proc.arguments = ["-nP", "-iTCP:\(p)", "-sTCP:LISTEN", "-F", "pn"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe; proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return [] }
+        let out = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        var cur: Int32 = 0; var res: [(Int32, String)] = []
+        for line in (String(data: out, encoding: .utf8) ?? "").split(separator: "\n") {
+            if line.hasPrefix("p"), let pid = Int32(line.dropFirst()) { cur = pid }
+            else if line.hasPrefix("n"), cur != 0 { res.append((cur, String(line.dropFirst()))) }
+        }
+        return res
+    }
+
+    /// 要对外监听、但复用到的服务只绑 127.0.0.1（app 崩溃后残留的旧子进程）→ 杀掉它，让 app 按新设置重新拉起
+    func staleSelfServer(_ p: Int) -> Int32? {
+        let needWildcard = !["127.0.0.1", "localhost", "::1", ""].contains(host)
+        guard needWildcard else { return nil }
+        let list = listenAddrs(p)
+        guard !list.isEmpty else { return nil }
+        guard list.allSatisfy({ $0.addr.hasPrefix("127.") || $0.addr.hasPrefix("[::1") }) else { return nil }
+        for (pid, _) in list {
+            let ps = Process(); ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+            ps.arguments = ["-p", "\(pid)", "-o", "command="]
+            let pipe = Pipe(); ps.standardOutput = pipe; ps.standardError = FileHandle.nullDevice
+            try? ps.run(); ps.waitUntilExit()
+            let cmd = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            if cmd.contains("WarmPlayer.app/Contents/Resources/helper/warmserver") { return pid }
+        }
+        return nil
+    }
+
+    func adopt(_ live: Int) -> Int? {
+        guard let stale = staleSelfServer(live) else { return live }
+        logLine("残留服务只绑回环 127.0.0.1:\(live)（pid \(stale)），按监听 \(host) 接管重启")
+        kill(stale, SIGTERM)
+        for _ in 0..<20 { if !health(live) { break }; usleep(100_000) }
+        if health(live) { kill(stale, SIGKILL); usleep(200_000) }
+        return health(live) ? live : nil
+    }
+
     func probeLive() -> Int? {
-        if configuredPort > 0 { return health(configuredPort) ? configuredPort : nil }
-        for p in 8900...8939 where health(p) { return p }
+        if configuredPort > 0 { return health(configuredPort) ? adopt(configuredPort) : nil }
+        for p in 8900...8939 where health(p) { return adopt(p) }
         return nil
     }
 
@@ -117,7 +162,7 @@ final class ServerManager {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, NSWindowDelegate {
     static var terminating = false
     var window: NSWindow!
     var web: WKWebView!
@@ -158,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             guard let self = self else { return }
             if let port = port {
                 self.statusItem.title = self.server.reused ? "服务：复用已有 :\(port)" : "服务：自带子进程 :\(port)"
-                self.web.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/")!))
+                self.web.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/?wmapp=1")!))
                 self.startNowPlaying()
             } else {
                 self.statusItem.title = "服务：启动失败（查看日志）"
@@ -300,10 +345,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
 
     // MARK: 设置窗
     @objc func openSettings() {
+        logLine("openSettings 进入，已有窗口=\(settingsWindow == nil ? "nil" : "有")")
         if settingsWindow == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 240),
                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
             w.title = "WarmPlayer 设置"
+            /* 关键：默认 isReleasedWhenClosed 会让窗口关闭时被额外 release，
+               而 Swift 仍持有 settingsWindow 这个已释放的指针 —— 关一次再点"设置…"必崩（objc_msgSend 0x18）。 */
+            w.isReleasedWhenClosed = false
+            w.delegate = self
             let stack = NSStackView()
             stack.orientation = .vertical; stack.spacing = 12
             stack.edgeInsets = NSEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
@@ -329,6 +379,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             let save = NSButton(title: "保存并重启服务", target: self, action: #selector(saveSettings(_:)))
             save.bezelStyle = .rounded; save.keyEquivalent = "\r"
             let cancel = NSButton(title: "取消", target: self, action: #selector(closeSettings))
+            cancel.keyEquivalent = "\u{1b}"
             cancel.bezelStyle = .rounded
             let btns = NSStackView(views: [save, cancel]); btns.spacing = 12
             stack.addArrangedSubview(btns)
@@ -339,6 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
                 stack.topAnchor.constraint(equalTo: w.contentView!.topAnchor),
             ])
             settingsWindow = w
+            logLine("设置窗已创建")
             objc_setAssociatedObject(w, &kPortKey, portF, .OBJC_ASSOCIATION_RETAIN)
             objc_setAssociatedObject(w, &kHostKey, hostF, .OBJC_ASSOCIATION_RETAIN)
             objc_setAssociatedObject(w, &kDataKey, dataF, .OBJC_ASSOCIATION_RETAIN)
@@ -360,22 +412,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         d.set(hf.stringValue.isEmpty ? "127.0.0.1" : hf.stringValue, forKey: "host")
         d.set(df.stringValue.isEmpty ? kDefaultData : df.stringValue, forKey: "dataDir")
         w.close()
-        if server.reused {
-            let a = NSAlert(); a.messageText = "当前复用已有服务"
-            a.informativeText = "设置已保存。退出其它 WarmPlayer 服务（launchd 等）后重启 app 才会用新设置拉起自带服务。"
-            a.runModal()
-            return
-        }
         statusItem.title = "服务：重启中…"
         server.restart { [weak self] port in
             guard let self = self else { return }
             if let port = port {
-                self.statusItem.title = "服务：自带子进程 :\(port)"
-                self.web.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/")!))
-            } else { self.statusItem.title = "服务：启动失败（查看日志）" }
+                self.statusItem.title = self.server.reused ? "服务：复用已有 :\(port)" : "服务：自带子进程 :\(port)"
+                self.web.load(URLRequest(url: URL(string: "http://127.0.0.1:\(port)/?wmapp=1")!))
+            } else {
+                self.statusItem.title = "服务：启动失败（查看日志）"
+                let a = NSAlert(); a.messageText = "服务没起来"
+                a.informativeText = "端口可能被其它进程占用，详情见日志（⌘L）。"
+                a.runModal()
+            }
         }
     }
     @objc func closeSettings() { settingsWindow?.close() }
+
+    func windowWillClose(_ note: Notification) {
+        guard let w = note.object as? NSWindow else { return }
+        if w === settingsWindow { settingsWindow = nil; logLine("设置窗已关闭，指针置空") }
+    }
 
     func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { logLine("页面加载失败：\(e.localizedDescription)") }
 }
