@@ -5150,6 +5150,15 @@ function isAndroidPhone(){
 }
 /* 安卓设备标记：只给安卓端做细节适配，iPhone/iPad 与桌面不受影响 */
 try { if (isAndroidPhone()) document.body.classList.add('u-android'); } catch (e) {}
+/* 壳内摇一摇：等价于点「版面切换」按钮，切到另一版；浏览器里不响应 */
+window.wmToggleView = function(){
+  if (!isShellApp()) return false;
+  try { saveSession(true); } catch (e) {}
+  try { if (document.fullscreenElement) localStorage.setItem('vinyl.wantFs', '1'); } catch (e) {}
+  window.location.href = '/tape';
+  return true;
+};
+
 /* 套壳里放出「App 设置」这一行（其余环境 CSS 默认隐藏），点击交给壳弹原生设置 */
 try {
   if (isShellApp()){

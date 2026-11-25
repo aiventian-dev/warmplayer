@@ -5313,6 +5313,15 @@ function isAndroidPhone(){
 }
 /* 安卓设备标记：只给安卓端做细节适配，iPhone/iPad 与桌面不受影响 */
 try { if (isAndroidPhone()) document.body.classList.add('u-android'); } catch (e) {}
+/* 壳内摇一摇：等价于点「版面切换」按钮，切到另一版；浏览器里不响应 */
+window.wmToggleView = function(){
+  if (!isShellApp()) return false;
+  try { saveSession(true); } catch (e) {}
+  try { if (document.fullscreenElement) localStorage.setItem('vinyl.wantFs', '1'); } catch (e) {}
+  window.location.href = '/';
+  return true;
+};
+
 /* 顶部工具条（表头选择 + 主题色）空闲 5 秒自动隐去；鼠标移进去、或触屏点第一下才出现 */
 (function(){
   var tools = document.querySelector('.topbar .tools');
