@@ -248,7 +248,9 @@ html.standalone body::after{display:block}
   opacity:0;transition:opacity 1.15s var(--ease)}
 .topbar{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;
   min-height:60px;padding:calc(8px + var(--safe-top)) clamp(18px,2.4vw,34px) 0 96px;position:relative;z-index:20}
-.topbar .tools{margin-top:0}
+.topbar .tools{margin-top:0;transition:opacity .3s var(--ease),transform .3s var(--ease)}
+/* 顶部工具条（表头选择 + 主题色）空闲 5 秒自动隐去：鼠标移进这块区域、或触屏点第一下再出现 */
+body.tools-hide .topbar .tools{opacity:0;transform:translateY(-6px);pointer-events:none}
 /* 工具条贴顶、唱片信息条留出一点空 */
 .topbar .brand{margin-top:8px}
 /* 图案是彩胶的子项：缩进成一条从属线，彩胶没开时不可点 */
@@ -5294,6 +5296,47 @@ async function addFolder(path){
 
 /* ================= 事件 ================= */
 let tapTimer = null, fsToggle = null;
+/* 套壳 app 判定：iOS 壳注册了 appSettings 桥、安卓壳注入了 wmApp；浏览器里两者都没有 */
+function isShellApp(){
+  try { if (sessionStorage.getItem('wm.app') === '1') return true; } catch (e) {}
+  try { if (window.wmApp) return true; } catch (e) {}
+  try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appSettings); } catch (e) { return false; }
+}
+/* 顶部工具条（表头选择 + 主题色）空闲 5 秒自动隐去；鼠标移进去、或触屏点第一下才出现 */
+(function(){
+  var tools = document.querySelector('.topbar .tools');
+  if (!tools) return;
+  var timer = null, hidden = false, inside = false, swallow = false;
+  function hide(){ if (hidden) return; hidden = true; document.body.classList.add('tools-hide'); }
+  function show(){ if (!hidden) return; hidden = false; document.body.classList.remove('tools-hide'); }
+  function arm(){ clearTimeout(timer); timer = setTimeout(hide, 5000); }
+  function inArea(x, y){
+    var r = tools.getBoundingClientRect();
+    return x >= r.left - 14 && x <= r.right + 14 && y >= r.top - 18 && y <= r.bottom + 26;
+  }
+  document.addEventListener('pointerdown', function(e){
+    if (e.pointerType !== 'touch') return;
+    if (hidden && inArea(e.clientX, e.clientY)){
+      swallow = true; show(); arm();          /* 触屏第一下只把工具栏叫出来，不点按钮 */
+      e.stopPropagation(); e.preventDefault();
+    } else {
+      arm();
+    }
+  }, true);
+  document.addEventListener('click', function(e){
+    if (swallow){ swallow = false; e.stopPropagation(); e.preventDefault(); }
+  }, true);
+  document.addEventListener('mousemove', function(e){
+    if (e.pointerType === 'touch') return;
+    if (inArea(e.clientX, e.clientY)){
+      if (hidden) show();
+      clearTimeout(timer); inside = true;     /* 鼠标停在工具区上就不隐藏 */
+    } else if (inside){
+      inside = false; arm();
+    }
+  }, true);
+  arm();
+})();
 /* 用 click 识别完整的轻点：iPad 触摸手势若被浏览器取消 pointerdown，仍能可靠唤回唱片架。 */
 document.addEventListener('click', function(e){
   if (state.sheetOpen) return;
@@ -5318,6 +5361,8 @@ document.addEventListener('click', function(e){
        t.closest('#deckBase') || t.closest('.now') || t.closest('.ctrls')) ? null
     : function(){ toggleShelf(true); };
   if (!act) return;
+  // 套壳里窗口本身就是全屏：不判双击、不做全屏切换，点一下就生效
+  if (isShellApp()){ act(); return; }
   // 空白处双击 = 进 / 退全屏：第一下等 220ms，第二下到就改走全屏
   if (tapTimer){
     clearTimeout(tapTimer); tapTimer = null;
@@ -5946,6 +5991,7 @@ function seekByTap(e){
 
   /* ---- 全屏 ---- */
   const fsBtn = document.getElementById('fullBtn');
+  if (fsBtn && isShellApp()) fsBtn.style.display = 'none';   // 套壳：窗口已全屏，全屏/退出图标都不出现
   let fsRelayoutT = 0, bgLockT = 0, fsSafeT = 0;
   /* 全屏切换时浏览器会重建渲染表面，那一帧必定黑一下。
      这里只把「页面自己的重活」从那一帧挪开：布局立刻算（便宜），
