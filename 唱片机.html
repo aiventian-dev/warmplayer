@@ -1070,10 +1070,16 @@ html,body{overflow-anchor:none}
 .sw[aria-checked="true"]{border-color:var(--ink)}
 .sw[aria-checked="true"] i{left:23px;opacity:.92}
 
+/* App 设置入口：只在套壳里出现（页面被 WKWebView 载入时 body 会有 app-shell 类） */
+.setrow.app-setRow{display:none;cursor:pointer}
+.setrow.app-setRow .chev{width:15px;height:15px;flex:0 0 auto;opacity:.45}
+.setrow.app-setRow .chev path{stroke:var(--ink);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+body.app-shell .setrow.app-setRow{display:flex}
+
 /* 移动端：设置区收紧——说明文字收起、开关与行距压小，给目录让出高度 */
 @media (max-width:600px), (max-height:520px){
-  .sheet-foot{padding:8px 16px 14px}
-  .sheet-foot .setrow{margin-top:6px;padding-top:6px;gap:10px}
+  .sheet-foot{padding:8px 16px max(6px,env(safe-area-inset-bottom))}
+  .sheet-foot .setrow{margin-top:4px;padding-top:4px;gap:10px}
   .sheet-foot .setl{gap:0}
   .sheet-foot .setl span{display:none}
   .sheet-foot .setrow.sub{margin-top:2px}
@@ -2286,6 +2292,10 @@ html[data-client="car"] .shelf-foot{padding-bottom:calc(10px + var(--safe-bottom
             <option value="51">保留 5.1</option>
             <option value="raw">原样不处理</option>
           </select>
+        </div>
+        <div class="setrow app-setRow" id="appSetRow">
+          <div class="setl"><b>App 设置</b><span>服务器地址与连接</span></div>
+          <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
         </div>
       </div>
     </div>
@@ -5125,6 +5135,16 @@ function isShellApp(){
   try { if (sessionStorage.getItem('wm.app') === '1') return true; } catch (e) {}
   try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appSettings); } catch (e) { return false; }
 }
+/* 套壳里放出「App 设置」这一行（其余环境 CSS 默认隐藏），点击交给壳弹原生设置 */
+try {
+  if (isShellApp()){
+    document.body.classList.add('app-shell');
+    var appSetRowEl = document.getElementById('appSetRow');
+    if (appSetRowEl) appSetRowEl.addEventListener('click', function(){
+      try { window.webkit.messageHandlers.appSettings.postMessage('open'); } catch (e) {}
+    });
+  }
+} catch (e) {}
 document.addEventListener('pointerdown', function(e){
   if (state.sheetOpen) return;
   const t = e.target;
