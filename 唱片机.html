@@ -5143,8 +5143,13 @@ function isShellApp(){
   if (/Android/i.test(ua) && /\bwv\b/.test(ua)) return true;   // 安卓 WebView 壳（未注入接口时按 UA 兜底）
   try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appSettings); } catch (e) { return false; }
 }
+/* 安卓手机（含 APK 壳与安卓手机浏览器）：iPhone/iPad 与桌面均不命中 */
+function isAndroidPhone(){
+  var u = navigator.userAgent || '';
+  return /Android/i.test(u) && /Mobile/i.test(u);
+}
 /* 安卓设备标记：只给安卓端做细节适配，iPhone/iPad 与桌面不受影响 */
-try { if (/Android/i.test(navigator.userAgent || '')) document.body.classList.add('u-android'); } catch (e) {}
+try { if (isAndroidPhone()) document.body.classList.add('u-android'); } catch (e) {}
 /* 套壳里放出「App 设置」这一行（其余环境 CSS 默认隐藏），点击交给壳弹原生设置 */
 try {
   if (isShellApp()){
@@ -5851,7 +5856,7 @@ function seekByTap(e){
 
   /* ---- 全屏 ---- */
   const fsBtn = document.getElementById('fullBtn');
-  if (fsBtn && isShellApp()){ fsBtn.style.display = 'none'; }   // 套壳：窗口本身就是全屏，全屏/退出图标都不再出现
+  if (fsBtn && (isShellApp() || isAndroidPhone())){ fsBtn.style.display = 'none'; }   // 套壳：窗口本身就是全屏，全屏/退出图标都不再出现
   let fsRelayoutT = 0, bgLockT = 0;
   /* 全屏切换时浏览器会重建渲染表面，那一帧必定黑一下。
      这里只把「页面自己的重活」从那一帧挪开：布局立刻算（便宜），
