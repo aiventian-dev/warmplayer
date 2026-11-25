@@ -17,7 +17,10 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23111'/%3E%3Ccircle cx='32' cy='32' r='9' fill='%23e9e5dc'/%3E%3Ccircle cx='32' cy='32' r='3' fill='%23111'/%3E%3C/svg%3E">
 <style>
 :root{
-  --safe-top:env(safe-area-inset-top, 0px);
+  /* iPhone 套壳会注入真实状态栏/灵动岛高度（--ios-safe-top），Android 套壳不注入 → 保持 0，
+     所以顶部让位只发生在 iPhone 上，安卓的中间挖孔照旧 */
+  --ios-safe-top:0px;
+  --safe-top:max(env(safe-area-inset-top, 0px), var(--ios-safe-top));
   --safe-bottom:env(safe-area-inset-bottom, 0px);
   --sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
   --ease:cubic-bezier(.22,.68,.28,1);
@@ -230,7 +233,7 @@ body[data-theme="paper"] .app::before{
 }
 html.standalone body[data-theme="paper"] .app::before{opacity:1}
 /* 存到桌面后状态栏是浮在上面的，顶部再让出一点余量，别让 logo 顶着时间 */
-html.standalone{--safe-top:env(safe-area-inset-top, 0px)}
+html.standalone{--safe-top:max(env(safe-area-inset-top, 0px), var(--ios-safe-top))}
 html.standalone .stage{padding-top:16px;padding-bottom:calc(clamp(20px,3vh,40px) + var(--safe-bottom))}
 html.standalone .shelf-foot{padding-bottom:calc(10px + var(--safe-bottom))}
 /* 桌面图标（WebApp）模式下把页面往下多铺一条安全区，别让底部空出来 */
@@ -1647,7 +1650,8 @@ body[data-theme="metal"]{--sp-on:#d9dce0;--sp-off:#4b4f55}
   .stage,.shelf-col,.now,.meters,.topbar{min-width:0;max-width:100vw}
 }
 @media (max-width:560px){
-  .topbar{overflow:visible;padding:12px 12px 20px;height:auto;min-height:0;row-gap:12px;justify-content:flex-start}
+  .topbar{overflow:visible;padding:12px 12px 20px;height:auto;min-height:0;row-gap:12px;justify-content:flex-start;
+    padding-top:calc(12px + var(--safe-top))}   /* iPhone 壳会注入灵动岛高度(--safe-top)，工具条因此下移到岛下；安卓注入 0，保持贴顶不紧 */
   .tools{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;width:100%;max-width:100%;gap:0;overflow:visible}
   .tools-left{min-width:0;gap:6px}
   .tools .meter-select,.tools select{max-width:40vw;min-width:0}
@@ -5131,9 +5135,10 @@ async function addFolder(path){
 
 /* ================= 事件 ================= */
 let tapTimer = null, fsToggle = null;
-/* 套壳 app（iOS/iPadOS WKWebView）判定：壳注册了 appSettings 桥，浏览器里没有 */
+/* 套壳 app（iOS/iPadOS WKWebView / 安卓 WebView）判定：壳注册了桥或注入了接口，浏览器里没有 */
 function isShellApp(){
   try { if (sessionStorage.getItem('wm.app') === '1') return true; } catch (e) {}
+  try { if (window.wmApp) return true; } catch (e) {}   // 安卓壳 addJavascriptInterface 注入
   try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appSettings); } catch (e) { return false; }
 }
 /* 套壳里放出「App 设置」这一行（其余环境 CSS 默认隐藏），点击交给壳弹原生设置 */
@@ -5142,7 +5147,10 @@ try {
     document.body.classList.add('app-shell');
     var appSetRowEl = document.getElementById('appSetRow');
     if (appSetRowEl) appSetRowEl.addEventListener('click', function(){
-      try { window.webkit.messageHandlers.appSettings.postMessage('open'); } catch (e) {}
+      try {
+        if (window.wmApp && window.wmApp.openSettings) { window.wmApp.openSettings(); return; }   // 安卓壳
+        window.webkit.messageHandlers.appSettings.postMessage('open');                            // iOS 壳
+      } catch (e) {}
     });
   }
 } catch (e) {}
