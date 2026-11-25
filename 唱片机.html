@@ -1235,8 +1235,8 @@ body[data-theme="paper"] .row .line{text-shadow:none}
 
 /* ====== 手机极窄视图（<=560px）：顶栏两行、模块居中、封面墙收小 ====== */
 @media (max-width:560px){
-  .topbar{height:80px;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;
-    transform:translateY(-20px)}   /* 手机端表头上提 20px：用位移，不占布局，下面元素不动 */
+  .topbar{height:80px;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px}
+  .meters{transform:translateY(-20px)}   /* 手机端 VU 表上提 20px：纯位移，不占布局，下方元素不动 */
   .stage{padding-bottom:14px}
   .brand{display:flex;align-items:baseline;justify-content:center;gap:8px;min-width:0;max-width:100%;grid-template-columns:none}
   .brand .dot{align-self:center;flex:0 0 auto}
