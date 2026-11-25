@@ -1003,6 +1003,20 @@ html,body{overflow-anchor:none}
 .sheet-foot .setrow:first-child{border-top:0;padding-top:0;margin-top:0}
 .sheet-foot .setrow{margin-top:10px;padding-top:10px}
 .sheet-foot .setl span{font-size:10.5px;line-height:1.35}
+/* 移动端：设置区收紧——说明文字收起、开关与行距压小，给目录让出高度 */
+@media (max-width:600px), (max-height:520px){
+  .sheet-foot{padding:8px 16px max(6px,env(safe-area-inset-bottom))}
+  .sheet-foot .setrow{margin-top:4px;padding-top:4px;gap:10px}
+  .sheet-foot .setl{gap:0}
+  .sheet-foot .setl span{display:none}
+  .sheet-foot .setrow.sub{margin-top:2px}
+  .sheet-foot .setrow.sub::before{top:8px;bottom:2px}
+  .sheet-foot .sw{width:38px;height:22px;border-radius:11px}
+  .sheet-foot .sw i{width:14px;height:14px;top:3px;left:3px}
+  .sheet-foot .sw[aria-checked="true"] i{left:21px}
+  .sheet-foot .setrow select{font-size:10.5px;padding:5px 22px 5px 9px}
+  .sheet-foot .setrow .rng{width:96px}
+}
 .f-item{padding:11px 0;border-bottom:1px solid var(--hair-2)}
 .f-name{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--ink)}
 .f-n{font-size:9.5px;color:var(--dim2);letter-spacing:.06em}
