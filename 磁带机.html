@@ -3513,6 +3513,32 @@ function elapsedNow(){ return Number.isFinite(audio.currentTime) ? audio.current
 
 /* ================= 刷新后回到上次的播放状态 ================= */
 const SESSION_KEY = 'vinyl.session';
+
+/* 摇一摇切版：目标页不沿用自己上次的架子位置，改为滚到当前挂载的这一张 */
+let shelfSyncPending = false;
+try {
+  shelfSyncPending = sessionStorage.getItem('vinyl.shelf.sync') === '1';
+  sessionStorage.removeItem('vinyl.shelf.sync');
+} catch (e){}
+
+function scrollShelfToAlbum(id){
+  try {
+    if (!el.shelf || shelfHidden()) return false;
+    const shelf = el.shelf;
+    const rows = shelf.querySelectorAll('[data-id]');
+    const sr = shelf.getBoundingClientRect();
+    for (let i = 0; i < rows.length; i++){
+      if (String(rows[i].dataset.id) !== String(id)) continue;
+      const rr = rows[i].getBoundingClientRect();
+      const delta = (rr.top - sr.top) - (shelf.clientHeight - rr.height) / 2;
+      shelf.scrollTop = Math.max(0, shelf.scrollTop + delta);
+      try { renderWindow(true); } catch (e){}
+      return true;
+    }
+  } catch (e){}
+  return false;
+}
+
 const SHELF_POS_KEY = 'vinyl.shelf.position';
 let sessionSavedAt = 0;
 let shelfRestorePending = false;
@@ -3525,6 +3551,7 @@ function saveShelfPosition(){
 }
 function restoreShelfPosition(){
   if (!el.shelf) return;
+  if (shelfSyncPending) return;      // 摇一摇切版进来：位置交给 scrollShelfToAlbum
   let pos = null;
   try { pos = JSON.parse(localStorage.getItem(SHELF_POS_KEY) || 'null'); } catch (e){}
   if (!pos) {
@@ -3601,6 +3628,7 @@ async function restoreSession(s){
   requestAnimationFrame(function(){
     layout();
     try { renderWindow(true); } catch (e){}
+    if (shelfSyncPending){ shelfSyncPending = false; scrollShelfToAlbum(a.id); }
   });
   if (s.playing){
     // 浏览器要求手势才能出声：能自动播就播；被拦下就记一笔，用户第一次触碰时接着放
@@ -5317,6 +5345,7 @@ try { if (isAndroidPhone()) document.body.classList.add('u-android'); } catch (e
 window.wmToggleView = function(){
   if (!isShellApp()) return false;
   try { saveSession(true); } catch (e) {}
+  try { sessionStorage.setItem('vinyl.shelf.sync', '1'); } catch (e) {}
   try { if (document.fullscreenElement) localStorage.setItem('vinyl.wantFs', '1'); } catch (e) {}
   window.location.href = '/';
   return true;
