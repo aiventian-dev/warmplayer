@@ -1653,9 +1653,26 @@ def thumb_path(album_id):
     src = cover_path(album_id)
     if not src:
         return None
-    if not SIPS:
-        return src
     os.makedirs(THUMB_DIR, exist_ok=True)
+    # 无 sips（Linux 容器）时用 ffmpeg 缩到 420px；否则只能原图直出，
+    # 手机端每张封面几百 KB，又慢又费流量，预热也等于没做。
+    if not SIPS:
+        if not FFMPEG:
+            return src
+        tmp = p + ".tmp.jpg"
+        try:
+            subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-i", src,
+                            "-vf", "scale='min(420,iw)':-2",
+                            "-q:v", "4", tmp],
+                           check=True, capture_output=True, timeout=20)
+            os.replace(tmp, p)
+            return p
+        except Exception:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return src
     tmp = p + ".tmp"
     try:
         subprocess.run([SIPS, "-s", "format", "jpeg", "-s", "formatOptions", "78",
