@@ -331,6 +331,8 @@ html[data-client="car"] .atmos-mid img{width:132px}
 .themes button.on{border-color:var(--ink);transform:scale(1.12)}
 .themes button.on::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--hair-2)}
 @media (pointer:coarse){.themes{gap:14px}.themes button{width:22px;height:22px}}
+/* 安卓端（APK 壳或安卓浏览器）主题色圈间距放宽 3px，iPhone/iPad 与桌面保持原样 */
+body.u-android .topbar .tools .themes{gap:8px}
 .iconbtn{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;
   color:var(--dim);transition:color .2s,background .2s}
 #fullBtn svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round}
@@ -5300,8 +5302,12 @@ let tapTimer = null, fsToggle = null;
 function isShellApp(){
   try { if (sessionStorage.getItem('wm.app') === '1') return true; } catch (e) {}
   try { if (window.wmApp) return true; } catch (e) {}
+  var ua = navigator.userAgent || '';
+  if (/Android/i.test(ua) && /\bwv\b/.test(ua)) return true;   // 安卓 WebView 壳（未注入接口时按 UA 兜底）
   try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.appSettings); } catch (e) { return false; }
 }
+/* 安卓设备标记：只给安卓端做细节适配，iPhone/iPad 与桌面不受影响 */
+try { if (/Android/i.test(navigator.userAgent || '')) document.body.classList.add('u-android'); } catch (e) {}
 /* 顶部工具条（表头选择 + 主题色）空闲 5 秒自动隐去；鼠标移进去、或触屏点第一下才出现 */
 (function(){
   var tools = document.querySelector('.topbar .tools');
