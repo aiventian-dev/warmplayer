@@ -1752,7 +1752,7 @@ body[data-theme="paper"] .cd-mark .cd-rev{color:rgba(30,26,20,.62)}
    面板加一点高度把底部播放器信息留出来（原来 well 吃满整块，aiwa 行被裁） */
 @media (max-width:900px) and (max-aspect-ratio:4/5){
   #deckWrap{height:auto!important;min-height:0}
-  #deck{width:min(94vw,calc(100vw - 28px))!important;height:auto!important;aspect-ratio:100/78;
+  #deck{width:min(94vw,calc(100vw - 28px),var(--deck,100vw))!important;height:auto!important;aspect-ratio:100/78;
     perspective:none}
   .cdeck{padding:1% 4.5% 5.5%}
   .cd-well{max-height:none!important;aspect-ratio:100/64;margin:0;flex:0 0 auto}
@@ -1955,6 +1955,17 @@ html[data-client="car"] .atmos-mid img.dlbimg{width:140px}
   #meters[data-meter="led"] .meter .leds i,
   #meters[data-meter="ledd"] .meter .leds i,
   #meters[data-meter="ledm"] .meter .leds i{min-width:1px}
+  /* 手机端顶栏与唱片机一致：工具条独占一行（下拉居左、色点贴右），品牌行压在它下面居中 */
+  .topbar{overflow:visible;padding:12px 12px 20px;height:auto;min-height:0;row-gap:12px;justify-content:flex-start}
+  .tools{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;width:100%;max-width:100%;gap:0;overflow:visible}
+  .tools-left{min-width:0;gap:6px}
+  .tools .meter-select,.tools select{max-width:40vw;min-width:0}
+  .mtsel{width:8em;box-sizing:content-box}
+  .themes{gap:5px;flex:0 0 auto;justify-self:end;margin-right:0}
+  .themes button{width:19px;height:19px;flex:0 0 auto}
+  .tools .ico,.tools .btn,.tools svg{flex:0 0 auto}
+  /* 表头/带仓贴顶排（不再垂直居中）：架子收放时顶栏行位不动，与唱片机对齐 */
+  .stage-main{justify-content:flex-start}
 }
 
 /* 塑料壳边改成往盒子外面扩一圈：盒内纸面不再被压进去 */
@@ -2665,7 +2676,9 @@ function centerBrand(){
   const tr = t.getBoundingClientRect();
   const br = b.getBoundingClientRect();
   const mr = m.getBoundingClientRect();
-  const shift = Math.round((mr.top - tr.bottom - br.height) / 2 - (br.top - tr.bottom));
+  /* 品牌行钉死在与唱片机一致的固定行位（工具条下沿 + 27），
+     不再随表头高度浮动，两页手机端顶栏才会完全对齐 */
+  const shift = Math.round(27 - (br.top - tr.bottom));
   b.style.transform = shift ? 'translateY(' + shift + 'px)' : '';
 }
 
@@ -2693,8 +2706,14 @@ function layout(){
   const badgeH = ab ? ab.offsetHeight + (parseFloat(getComputedStyle(ab).marginTop) || 0)
                     : metricCache.badge;
   metricCache.badge = badgeH;
-  const room = Math.max(110, mainH - metricCache.meters - badgeH - gaps);
-  const d = Math.max(100, Math.min(w - 4, room));
+  /* 磁带机竖屏的带仓是 100:78 的扁盒：可用高度要按比例换成宽度，
+     否则托盘被当成“高度=宽度”缩成小方块，舞台内容居中后把顶栏顶歪。
+     可用高度直接取舞台实高减去播放区，别用被 flex 压扁的 stage-main */
+  const tapeStrip = document.getElementById('tRack') && document.body.classList.contains('strip');
+  const availH = tapeStrip ? Math.max(160, h - metricCache.now - 28) : mainH;
+  const room = Math.max(110, availH - metricCache.meters - badgeH - gaps);
+  const d = Math.max(100, Math.min(w - 4,
+    tapeStrip ? Math.round(room * 100 / 78) : room));
   const px = Math.floor(d);
   if (px === deckCached) return;
   deckCached = px;
